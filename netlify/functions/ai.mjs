@@ -121,7 +121,117 @@ const toolDefs=[
 function runTool(name,args,base){switch(name){case"sales_summary":return salesSummary(args,base);case"rank_ads":return rankAds(args,base);case"rank_patterns":return rankPatterns(args,base);case"monthly_trend":return monthlyTrend(args,base);case"compare_months":return compareMonths(args,base);case"big_retail_summary":return bigRetail(args,base);case"store_detail":return storeDetail(args,base);case"registration_summary":return registrationSummary(args,base);case"cai_opportunities":return caiOpportunities(args,base);case"mission_summary":return missionSummary(args);default:return {error:"Unknown tool"};}}
 
 
-const SYSTEM=`You are the AI Sales Analyst inside Michelin Thailand's two-wheel sell-out dashboard. Data period is Jan-Aug 2026 unless a tool says otherwise. Answer in Thai when the user asks in Thai, otherwise in the user's language. Be concise and business-useful. IMPORTANT: use calculation tools for every numeric claim; never invent, estimate, or infer a number not returned by a tool. The current dashboard filters supplied by the application are the default scope. If the user explicitly asks for a different month, Distributor, AD, Segment, Pattern, Big Retail, registration status or Mission status, override the relevant filter in your tool call. Distinguish Sales Value (THB) from Quantity (tyres). Month mapping: 1 Jan, 2 Feb, 3 Mar, 4 Apr, 5 May, 6 Jun, 7 Jul, 8 Aug. For month-over-month questions, call compare_months. For a named store, use store_detail. For Big Retail use big_retail_summary. For Opportunity/CAI use cai_opportunities. Mention when a result is limited by the dashboard's Jan-Aug source data. Do not claim causation from sales data alone.`;
+
+function makeVisualization(toolName,result,args,question){
+  const q=norm(question||"");
+  const wantsQty=/qty|quantity|จำนวน|เส้น/.test(q);
+  const wantsSales=/sales|value|ยอดขาย|บาท|มูลค่า/.test(q);
+  const format=wantsQty&&!wantsSales?"number":"currency";
+
+  if(toolName==="big_retail_summary" && result?.segments?.length){
+    const metric=(wantsQty&&!wantsSales)?"qty":"sales";
+    const pctKey=metric==="qty"?"qty_pct":"sales_pct";
+    return {
+      type:"donut",
+      title:`Big Retail ${metric==="qty"?"Quantity":"Sales"} Mix by Segment`,
+      subtitle:"Calculated directly from dashboard data",
+      format:metric==="qty"?"number":"currency",
+      center_label:metric==="qty"?"Quantity mix":"Sales mix",
+      items:result.segments.map(x=>({label:x.segment,value:Number(x[metric]||0),pct:Number(x[pctKey]||0)}))
+    };
+  }
+
+  if(toolName==="sales_summary"){
+    if(result?.segments?.length){
+      const metric=(wantsQty&&!wantsSales)?"qty":"sales";
+      return {
+        type:"donut",title:`${metric==="qty"?"Quantity":"Sales"} Mix by Segment`,
+        subtitle:"Current dashboard scope",format:metric==="qty"?"number":"currency",
+        items:result.segments.map(x=>({label:x.segment,value:Number(x[metric]||0)}))
+      };
+    }
+  }
+
+  if(toolName==="monthly_trend" && Array.isArray(result)){
+    const metric=(wantsQty&&!wantsSales)?"qty":"sales";
+    return {
+      type:"line",title:`Monthly ${metric==="qty"?"Quantity":"Sales"} Trend`,
+      subtitle:"Jan–Aug 2026",format:metric==="qty"?"number":"currency",
+      items:result.map(x=>({label:x.label,value:Number(x[metric]||0)}))
+    };
+  }
+
+  if(toolName==="rank_ads" && Array.isArray(result)){
+    const metric=args?.metric==="qty"?"qty":"sales";
+    return {
+      type:"bar",title:`Top AD by ${metric==="qty"?"Quantity":"Sales"}`,
+      format:metric==="qty"?"number":"currency",
+      items:result.slice(0,10).map(x=>({label:x.ad,value:Number(x[metric]||0)}))
+    };
+  }
+
+  if(toolName==="rank_patterns" && Array.isArray(result)){
+    const metric=args?.metric==="qty"?"qty":"sales";
+    return {
+      type:"bar",title:`Top Patterns by ${metric==="qty"?"Quantity":"Sales"}`,
+      format:metric==="qty"?"number":"currency",
+      items:result.slice(0,10).map(x=>({label:x.pattern,value:Number(x[metric]||0)}))
+    };
+  }
+
+  if(toolName==="compare_months" && Array.isArray(result)){
+    return {
+      type:"bar",title:"Largest Changes",
+      subtitle:"Absolute change between selected months",
+      format:args?.metric==="qty"?"number":"currency",
+      items:result.slice(0,10).map(x=>({label:x.label,value:Math.abs(Number(x.delta||0))}))
+    };
+  }
+
+  if(toolName==="registration_summary" && result?.registered && result?.not_registered){
+    const metric=(wantsQty&&!wantsSales)?"qty":"sales";
+    const a=Number(result.registered[metric]||0),b=Number(result.not_registered[metric]||0),t=a+b;
+    return {
+      type:"donut",title:`Line Registration ${metric==="qty"?"Quantity":"Sales"} Mix`,
+      format:metric==="qty"?"number":"currency",
+      items:[
+        {label:"Registered",value:a,pct:t?a/t*100:0},
+        {label:"Not registered",value:b,pct:t?b/t*100:0}
+      ]
+    };
+  }
+
+  if(toolName==="store_detail" && Array.isArray(result) && result.length===1 && result[0]?.monthly?.length){
+    const metric=(wantsQty&&!wantsSales)?"qty":"sales";
+    return {
+      type:"line",title:`${result[0].ad} · Monthly ${metric==="qty"?"Quantity":"Sales"}`,
+      subtitle:result[0].distributor||"",format:metric==="qty"?"number":"currency",
+      items:result[0].monthly.map(x=>({label:x.label,value:Number(x[metric]||0)}))
+    };
+  }
+
+  if(toolName==="cai_opportunities" && Array.isArray(result) && result.length){
+    return {
+      type:"bar",title:"Top CAI Opportunity Gaps",
+      subtitle:"Gap to same-size peer benchmark · tyres",format:"number",
+      items:result.slice(0,10).map(x=>({label:`${x.ad} · ${x.pattern}`,value:Number(x.gap_qty||0)}))
+    };
+  }
+
+  if(toolName==="mission_summary" && result?.available){
+    return {
+      type:"donut",title:"Mission Registration Mix",format:"number",
+      items:[
+        {label:"Registered",value:Number(result.registered||0)},
+        {label:"Not registered",value:Number(result.not_registered||0)}
+      ]
+    };
+  }
+
+  return null;
+}
+
+const SYSTEM=`You are the AI Sales Analyst inside Michelin Thailand's two-wheel sell-out dashboard. Data period is Jan-Aug 2026 unless a tool says otherwise. Answer in Thai when the user asks in Thai, otherwise in the user's language. Be concise and business-useful. Use calculation tools for every numeric claim; never invent numbers. Current dashboard filters are the default scope unless the user explicitly overrides them. Distinguish Sales Value (THB) from Quantity (tyres). Month mapping: 1 Jan, 2 Feb, 3 Mar, 4 Apr, 5 May, 6 Jun, 7 Jul, 8 Aug. Use compare_months for MoM, store_detail for a named store, big_retail_summary for Big Retail, and cai_opportunities for CAI/Opportunity. Mention Jan-Aug limitation when relevant. Do not claim causation from sales data alone. Keep the answer short because the dashboard may render a chart automatically; do not describe how to draw a chart and do not output chart JSON.`;
 
 
 
@@ -156,24 +266,51 @@ async function openAI(env,payload){
   return body;
 }
 async function handleAsk(request,env){
-  if(!env.OPENAI_API_KEY)return json({error:"OPENAI_API_KEY is not configured in Cloudflare Secrets."},503);
+  if(!env.OPENAI_API_KEY)return json({error:"OPENAI_API_KEY is not configured in Netlify Environment Variables."},503);
   const body=await request.json().catch(()=>({}));
-  const question=String(body?.question||"").trim();if(!question)return json({error:"Question is required."},400);
-  const baseFilters=body?.filters||{}; const history=Array.isArray(body?.history)?body.history.slice(-8):[];
-  const hist=history.filter(x=>x&&["user","assistant"].includes(x.role)&&typeof x.content==="string").slice(0,-1).map(x=>({role:x.role,content:x.content.slice(0,4000)}));
-  let input=[...hist,{role:"user",content:`Current dashboard filters: ${JSON.stringify(baseFilters)}\n\nQuestion: ${question}`}];
-  const model=env.OPENAI_MODEL||"gpt-5.4-mini";
-  let response=await openAI(env,{model,instructions:SYSTEM,input,tools:toolDefs,tool_choice:"auto",store:false,reasoning:{effort:"low"},max_output_tokens:1600});
-  for(let step=0;step<6;step++){
-    const calls=(response.output||[]).filter(x=>x.type==="function_call");if(!calls.length)break;
-    input.push(...response.output);
-    for(const call of calls){let args={};try{args=JSON.parse(call.arguments||"{}");}catch{}const result=runTool(call.name,args,baseFilters);input.push({type:"function_call_output",call_id:call.call_id,output:JSON.stringify(result)});}
-    response=await openAI(env,{model,instructions:SYSTEM,input,tools:toolDefs,tool_choice:"auto",store:false,reasoning:{effort:"low"},max_output_tokens:1600});
-  }
-  const answer=extractOutputText(response);if(!answer)return json({error:"AI returned no text response."},500);
-  return json({answer,model});
-}
+  const question=String(body?.question||"").trim();
+  if(!question)return json({error:"Question is required."},400);
 
+  const baseFilters=body?.filters||{};
+  const history=Array.isArray(body?.history)?body.history.slice(-6):[];
+  const hist=history
+    .filter(x=>x&&["user","assistant"].includes(x.role)&&typeof x.content==="string")
+    .slice(0,-1)
+    .map(x=>({role:x.role,content:x.content.slice(0,2500)}));
+
+  let input=[...hist,{role:"user",content:`Filters: ${JSON.stringify(baseFilters)}\nQuestion: ${question}`}];
+  const model=env.OPENAI_MODEL||"gpt-5.4-mini";
+  const requestCfg={model,instructions:SYSTEM,input,tools:toolDefs,tool_choice:"auto",store:false,reasoning:{effort:"low"},max_output_tokens:1000};
+
+  let response=await openAI(env,requestCfg);
+  let lastTool=null;
+
+  for(let step=0;step<5;step++){
+    const calls=(response.output||[]).filter(x=>x.type==="function_call");
+    if(!calls.length)break;
+
+    input.push(...response.output);
+    for(const call of calls){
+      let args={};
+      try{args=JSON.parse(call.arguments||"{}");}catch{}
+      const result=runTool(call.name,args,baseFilters);
+      lastTool={name:call.name,args,result};
+      input.push({type:"function_call_output",call_id:call.call_id,output:JSON.stringify(result)});
+    }
+    response=await openAI(env,{...requestCfg,input});
+  }
+
+  const answer=extractOutputText(response);
+  if(!answer)return json({error:"AI returned no text response."},500);
+
+  // Visualization is built deterministically from the calculation-tool result.
+  // It costs ZERO additional OpenAI tokens.
+  const visualization=lastTool
+    ? makeVisualization(lastTool.name,lastTool.result,lastTool.args,question)
+    : null;
+
+  return json({answer,model,visualization});
+}
 
 function authOK(request){
   const required=process.env.DASHBOARD_PASSWORD||"";

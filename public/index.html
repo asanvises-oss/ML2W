@@ -186,10 +186,20 @@ tbody tr:last-child td{border-bottom:0}
 .ai-status{font-size:10px;font-weight:800;padding:4px 8px;border-radius:999px;background:#eef2f7;color:#53657d;white-space:nowrap}
 .ai-status.ok{background:#e8f6ee;color:#1f7a4c}.ai-status.err{background:#fbecef;color:#a33b45}
 .ai-messages{flex:1;min-height:360px;max-height:560px;overflow:auto;padding:10px;background:#f8fafc;border:1px solid var(--line);border-radius:10px}
-.ai-msg{max-width:88%;margin:0 0 10px;padding:10px 12px;border-radius:12px;font-size:12px;line-height:1.55;white-space:pre-wrap;overflow-wrap:anywhere}
-.ai-msg.user{margin-left:auto;background:var(--blue);color:#fff;border-bottom-right-radius:4px}
-.ai-msg.assistant{margin-right:auto;background:#fff;border:1px solid var(--line);color:#23334a;border-bottom-left-radius:4px}
-.ai-msg.system{max-width:100%;background:#fff7dd;color:#705500;border:1px solid #f1df9a}
+.ai-msg{max-width:88%;margin:0 0 10px;padding:12px 14px;border-radius:12px;font-size:12px;line-height:1.62;overflow-wrap:anywhere}
+.ai-msg.user{margin-left:auto;background:var(--blue);color:#fff;border-bottom-right-radius:4px;white-space:pre-wrap}
+.ai-msg.assistant{margin-right:auto;background:#fff;border:1px solid var(--line);color:#23334a;border-bottom-left-radius:4px;white-space:normal}
+.ai-msg.system{max-width:100%;background:#fff7dd;color:#705500;border:1px solid #f1df9a;white-space:pre-wrap}
+.ai-msg.assistant p{margin:0 0 9px}
+.ai-msg.assistant p:last-child{margin-bottom:0}
+.ai-msg.assistant strong{font-weight:900;color:#173d76}
+.ai-msg.assistant ul,.ai-msg.assistant ol{margin:7px 0 9px 20px;padding:0}
+.ai-msg.assistant li{margin:4px 0}
+.ai-msg.assistant h3{font-size:13px;margin:10px 0 6px;color:#173d76}
+.ai-msg.assistant code{background:#f2f5f8;border:1px solid #e3e8ee;border-radius:5px;padding:1px 4px;font-size:11px}
+.ai-msg.assistant .ai-kpi-line{display:flex;gap:8px;align-items:baseline;margin:4px 0}
+.ai-msg.assistant .ai-kpi-label{font-weight:800;color:#52637a}
+.ai-msg.assistant .ai-kpi-value{font-weight:900;color:#173d76}
 .ai-compose{display:flex;gap:8px;margin-top:10px}
 .ai-compose textarea{flex:1;min-height:72px;max-height:150px;resize:vertical;border:1px solid var(--line);border-radius:10px;padding:10px 12px;font:inherit}
 .ai-compose button{min-width:90px;border:0;border-radius:10px;background:#5b3bbd;color:#fff;font-weight:900;padding:0 14px}
@@ -917,6 +927,56 @@ tbody tr:last-child td{border-bottom:0}
 }
 #netlifyAccessError{min-height:18px;margin-top:8px;font-size:9px;color:#b3261e;font-weight:800}
 body.netlify-access-locked{overflow:hidden}
+
+
+/* ===== AI auto-visualization: zero external chart library ===== */
+.ai-viz{
+  margin-top:12px;padding:13px 14px 14px;border:1px solid #e1e7ee;border-radius:12px;
+  background:#fbfcfe;
+}
+.ai-viz-title{font-size:11px;font-weight:900;color:#173d76;margin-bottom:3px}
+.ai-viz-sub{font-size:9px;color:#78869a;margin-bottom:11px}
+.ai-viz-grid{display:grid;grid-template-columns:minmax(150px,190px) 1fr;gap:18px;align-items:center}
+.ai-donut{
+  width:150px;height:150px;border-radius:50%;position:relative;margin:auto;
+  box-shadow:inset 0 0 0 1px rgba(20,40,70,.06)
+}
+.ai-donut:after{
+  content:"";position:absolute;inset:29px;border-radius:50%;background:#fff;
+  box-shadow:0 0 0 1px rgba(20,40,70,.05)
+}
+.ai-donut-center{
+  position:absolute;z-index:2;inset:40px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center
+}
+.ai-donut-center b{font-size:16px;color:#173d76}
+.ai-donut-center span{font-size:8px;color:#7a8799;margin-top:2px}
+.ai-viz-legend{display:flex;flex-direction:column;gap:7px}
+.ai-viz-row{display:grid;grid-template-columns:10px minmax(95px,1fr) auto auto;gap:7px;align-items:center;font-size:9px}
+.ai-viz-dot{width:8px;height:8px;border-radius:50%}
+.ai-viz-label{font-weight:800;color:#394b63;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ai-viz-value{font-weight:900;color:#173d76;text-align:right}
+.ai-viz-pct{color:#718096;text-align:right;min-width:42px}
+.ai-bars{display:flex;flex-direction:column;gap:8px}
+.ai-bar-row{display:grid;grid-template-columns:minmax(90px,160px) 1fr auto;gap:8px;align-items:center}
+.ai-bar-label{font-size:9px;font-weight:800;color:#43546b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ai-bar-track{height:8px;background:#e9eef4;border-radius:999px;overflow:hidden}
+.ai-bar-fill{height:100%;border-radius:999px;background:#173d76;min-width:2px}
+.ai-bar-value{font-size:9px;font-weight:900;color:#173d76;white-space:nowrap;text-align:right}
+.ai-line-wrap{width:100%;overflow:hidden}
+.ai-line-svg{display:block;width:100%;height:180px}
+.ai-line-axis{font-size:8px;fill:#7b8798}
+.ai-line-grid{stroke:#e7ecf2;stroke-width:1}
+.ai-line-path{fill:none;stroke:#173d76;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round}
+.ai-line-dot{fill:#173d76}
+.ai-line-val{font-size:7px;fill:#173d76;font-weight:700}
+.ai-kpi-strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px}
+.ai-kpi-card{padding:10px;border:1px solid #e2e8ef;border-radius:10px;background:white}
+.ai-kpi-card .k{font-size:8px;font-weight:800;color:#718096;text-transform:uppercase}
+.ai-kpi-card .v{margin-top:3px;font-size:14px;font-weight:900;color:#173d76}
+@media(max-width:700px){
+  .ai-viz-grid{grid-template-columns:1fr}
+  .ai-bar-row{grid-template-columns:minmax(75px,115px) 1fr auto}
+}
 
 </style>
 </head>
@@ -2476,11 +2536,164 @@ function aiFilterLabel(){
 function updateAIFilterSummary(){
   const el=$("aiFilterSummary");if(el)el.innerHTML=aiFilterLabel();
 }
-function addAIMessage(role,text){
+function renderAIMarkdown(text){
+  // Lightweight, dependency-free Markdown renderer for AI answers.
+  // Escapes raw HTML first, then supports headings, bold, inline code, and lists.
+  let s=String(text??"")
+    .replace(/&/g,"&amp;")
+    .replace(/</g,"&lt;")
+    .replace(/>/g,"&gt;");
+
+  const lines=s.split(/\r?\n/);
+  let out=[], listType=null;
+
+  const closeList=()=>{
+    if(listType){out.push(`</${listType}>`);listType=null;}
+  };
+  const inline=(x)=>x
+    .replace(/`([^`]+)`/g,"<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g,"<strong>$1</strong>")
+    .replace(/__([^_]+)__/g,"<strong>$1</strong>");
+
+  for(const raw of lines){
+    const line=raw.trim();
+
+    if(!line){
+      closeList();
+      continue;
+    }
+
+    const h=line.match(/^###\s+(.+)$/);
+    if(h){
+      closeList();
+      out.push(`<h3>${inline(h[1])}</h3>`);
+      continue;
+    }
+
+    const ul=line.match(/^[-•]\s+(.+)$/);
+    if(ul){
+      if(listType!=="ul"){closeList();listType="ul";out.push("<ul>");}
+      out.push(`<li>${inline(ul[1])}</li>`);
+      continue;
+    }
+
+    const ol=line.match(/^\d+[.)]\s+(.+)$/);
+    if(ol){
+      if(listType!=="ol"){closeList();listType="ol";out.push("<ol>");}
+      out.push(`<li>${inline(ol[1])}</li>`);
+      continue;
+    }
+
+    closeList();
+
+    // Make simple "Label: value" lines easier to scan.
+    const kv=line.match(/^(?:[-•]\s*)?([^:]{2,40}):\s*(.+)$/);
+    if(kv && !line.startsWith("http")){
+      out.push(`<div class="ai-kpi-line"><span class="ai-kpi-label">${inline(kv[1])}:</span><span class="ai-kpi-value">${inline(kv[2])}</span></div>`);
+    }else{
+      out.push(`<p>${inline(line)}</p>`);
+    }
+  }
+
+  closeList();
+  return out.join("");
+}
+
+function aiVizEsc(s){
+  return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+function aiVizFmt(v,format){
+  const n=Number(v||0);
+  if(format==="currency"){
+    if(Math.abs(n)>=1e6)return "฿"+(n/1e6).toFixed(n>=1e7?1:2)+"M";
+    if(Math.abs(n)>=1e3)return "฿"+(n/1e3).toFixed(1)+"K";
+    return "฿"+Math.round(n).toLocaleString();
+  }
+  if(format==="percent")return n.toFixed(1)+"%";
+  return Math.round(n).toLocaleString();
+}
+const AI_VIZ_COLORS=["#173d76","#4f77a8","#86a5c7","#b8cbe0","#dbe5ef","#65758a","#9aa7b6","#cbd3dc"];
+
+function renderAIViz(viz){
+  if(!viz||!viz.type)return "";
+  const title=aiVizEsc(viz.title||"");
+  const sub=aiVizEsc(viz.subtitle||"");
+  const items=(viz.items||[]).filter(x=>x&&Number.isFinite(Number(x.value))).slice(0,12);
+  if(!items.length && viz.type!=="kpi")return "";
+
+  if(viz.type==="donut"){
+    const total=items.reduce((s,x)=>s+Number(x.value||0),0);
+    if(total<=0)return "";
+    let acc=0,stops=[];
+    items.forEach((x,i)=>{
+      const a=acc/total*100;acc+=Number(x.value||0);const b=acc/total*100;
+      stops.push(`${AI_VIZ_COLORS[i%AI_VIZ_COLORS.length]} ${a}% ${b}%`);
+    });
+    const legend=items.map((x,i)=>{
+      const pct=Number.isFinite(Number(x.pct))?Number(x.pct):(Number(x.value)/total*100);
+      return `<div class="ai-viz-row">
+        <span class="ai-viz-dot" style="background:${AI_VIZ_COLORS[i%AI_VIZ_COLORS.length]}"></span>
+        <span class="ai-viz-label" title="${aiVizEsc(x.label)}">${aiVizEsc(x.label)}</span>
+        <span class="ai-viz-value">${aiVizFmt(x.value,viz.format)}</span>
+        <span class="ai-viz-pct">${pct.toFixed(1)}%</span>
+      </div>`;
+    }).join("");
+    return `<div class="ai-viz"><div class="ai-viz-title">${title}</div>${sub?`<div class="ai-viz-sub">${sub}</div>`:""}
+      <div class="ai-viz-grid">
+        <div class="ai-donut" style="background:conic-gradient(${stops.join(",")})">
+          <div class="ai-donut-center"><b>100%</b><span>${aiVizEsc(viz.center_label||"Total mix")}</span></div>
+        </div>
+        <div class="ai-viz-legend">${legend}</div>
+      </div></div>`;
+  }
+
+  if(viz.type==="bar"){
+    const max=Math.max(...items.map(x=>Math.abs(Number(x.value||0))),1);
+    const rows=items.map((x,i)=>{
+      const width=Math.max(1,Math.abs(Number(x.value||0))/max*100);
+      return `<div class="ai-bar-row">
+        <div class="ai-bar-label" title="${aiVizEsc(x.label)}">${aiVizEsc(x.label)}</div>
+        <div class="ai-bar-track"><div class="ai-bar-fill" style="width:${width}%"></div></div>
+        <div class="ai-bar-value">${aiVizFmt(x.value,viz.format)}</div>
+      </div>`;
+    }).join("");
+    return `<div class="ai-viz"><div class="ai-viz-title">${title}</div>${sub?`<div class="ai-viz-sub">${sub}</div>`:""}<div class="ai-bars">${rows}</div></div>`;
+  }
+
+  if(viz.type==="line"){
+    const pts=items;
+    if(pts.length<2)return "";
+    const vals=pts.map(x=>Number(x.value||0)), min=Math.min(...vals), max=Math.max(...vals);
+    const range=(max-min)||1, W=620,H=180,L=35,R=15,T=20,B=30;
+    const x=i=>L+(W-L-R)*(i/(pts.length-1));
+    const y=v=>T+(H-T-B)*(1-(v-min)/range);
+    const path=pts.map((p,i)=>(i?"L":"M")+x(i).toFixed(1)+","+y(Number(p.value)).toFixed(1)).join(" ");
+    const grids=[0,.25,.5,.75,1].map(f=>{
+      const yy=T+(H-T-B)*f;
+      return `<line class="ai-line-grid" x1="${L}" y1="${yy}" x2="${W-R}" y2="${yy}"/>`;
+    }).join("");
+    const dots=pts.map((p,i)=>`<circle class="ai-line-dot" cx="${x(i)}" cy="${y(Number(p.value))}" r="3"/>`).join("");
+    const labels=pts.map((p,i)=>`<text class="ai-line-axis" x="${x(i)}" y="${H-9}" text-anchor="middle">${aiVizEsc(p.label)}</text>`).join("");
+    return `<div class="ai-viz"><div class="ai-viz-title">${title}</div>${sub?`<div class="ai-viz-sub">${sub}</div>`:""}
+      <div class="ai-line-wrap"><svg class="ai-line-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${grids}<path class="ai-line-path" d="${path}"/>${dots}${labels}</svg></div></div>`;
+  }
+
+  if(viz.type==="kpi"){
+    const ks=(viz.items||[]).slice(0,6).map(x=>`<div class="ai-kpi-card"><div class="k">${aiVizEsc(x.label)}</div><div class="v">${aiVizFmt(x.value,x.format||viz.format)}</div></div>`).join("");
+    return ks?`<div class="ai-viz"><div class="ai-viz-title">${title}</div>${sub?`<div class="ai-viz-sub">${sub}</div>`:""}<div class="ai-kpi-strip">${ks}</div></div>`:"";
+  }
+  return "";
+}
+
+function addAIMessage(role,text,viz=null){
   const box=$("aiMessages");
   const div=document.createElement("div");
   div.className=`ai-msg ${role}`;
-  div.textContent=text;
+  if(role==="assistant"){
+    div.innerHTML=renderAIMarkdown(text)+renderAIViz(viz);
+  }else{
+    div.textContent=text;
+  }
   box.appendChild(div);
   box.scrollTop=box.scrollHeight;
 }
@@ -2516,7 +2729,7 @@ async function askAI(){
     });
     const j=await r.json();
     if(!r.ok)throw new Error(j.detail||j.error||"AI request failed");
-    addAIMessage("assistant",j.answer);
+    addAIMessage("assistant",j.answer,j.visualization||null);
     AI_HISTORY.push({role:"assistant",content:j.answer});
   }catch(e){
     addAIMessage("system",`AI error: ${e.message}`);
