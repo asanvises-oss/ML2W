@@ -93,3 +93,16 @@ V11 AI DATA MART
 - Mission remains a separate dataset and is blocked unless the current question explicitly mentions Mission.
 - Entity/list questions return text lists; charts remain for trends, shares and comparisons.
 - UI badge and backend health expose V11.
+
+V11.1 BUILD FIX
+- Fixed JavaScript template-literal syntax errors in visualization titles.
+- Validated netlify/functions/ai.mjs with node --check before packaging.
+- Backend/UI version bumped to V11.1.
+
+V11.2 ROOT-CAUSE FIX
+- Single source of truth for LINE registration = corrected DATA column 4 used by the dashboard.
+- ENTITY_ADS is now metadata-only (AD Code/name); it can no longer overwrite LINE status.
+- Removed overlapping legacy entity/ranking tools from the model tool list, eliminating ambiguous tool selection.
+- LINE intent is validated at the authoritative mart tool boundary; not-registered/registered status is forced into the query args.
+- Mission stays completely separate.
+- Expected corrected store counts from embedded DATA: 353 registered, 404 not registered, 757 total.

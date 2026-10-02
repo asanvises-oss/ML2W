@@ -43,6 +43,7 @@ let _AD_MASTER_CACHE=null;
 function buildADMaster(){
   if(_AD_MASTER_CACHE)return _AD_MASTER_CACHE;
 
+  // AD code metadata only. Do NOT use ENTITY_ADS for LINE status.
   const meta=new Map();
   for(const x of ENTITY_ADS){
     const key=norm(x.distributor)+"\u0001"+norm(x.ad);
@@ -50,29 +51,35 @@ function buildADMaster(){
       meta.set(key,{
         distributor:x.distributor,
         ad:x.ad,
-        ad_code:(x.ad_code && x.ad_code!=="null") ? String(x.ad_code) : null,
-        line_registered:!!x.line_registered
+        ad_code:(x.ad_code && x.ad_code!=="null" && x.ad_code!=="-") ? String(x.ad_code) : null
       });
     }else{
       const m=meta.get(key);
-      if(!m.ad_code && x.ad_code && x.ad_code!=="null")m.ad_code=String(x.ad_code);
-      m.line_registered=m.line_registered||!!x.line_registered;
+      if(!m.ad_code && x.ad_code && x.ad_code!=="null" && x.ad_code!=="-")m.ad_code=String(x.ad_code);
     }
   }
 
-  // Only current sell-out ADs are exposed in the analytical master.
+  // Authoritative AD master comes from DATA because its LINE flag already contains
+  // the corrected dealer-level registration mapping used by the dashboard.
   const sales=new Map();
   for(const r of DATA){
     const key=norm(r[0])+"\u0001"+norm(r[1]);
     if(!sales.has(key)){
       sales.set(key,{
         distributor:r[0], ad:r[1], status:r[2],
+        line_registered:false,
         qty:0, sales:0, months:new Set(), segments:new Map(), patterns:new Map()
       });
     }
     const x=sales.get(key);
-    x.qty+=num(r[7]); x.sales+=num(r[8]);
+
+    // DATA col 4 is the dashboard's canonical corrected LINE flag: 1 registered, 0 not registered.
+    if(Number(r[4])===1)x.line_registered=true;
+
+    x.qty+=num(r[7]);
+    x.sales+=num(r[8]);
     if(num(r[7])>0)x.months.add(Number(r[3]));
+
     const seg=r[5]||"Unknown", pat=r[6]||"Unknown";
     x.segments.set(seg,(x.segments.get(seg)||0)+num(r[7]));
     x.patterns.set(pat,(x.patterns.get(pat)||0)+num(r[7]));
@@ -85,8 +92,8 @@ function buildADMaster(){
       distributor:s.distributor,
       ad:s.ad,
       ad_code:m?.ad_code||null,
-      line_registered:m ? !!m.line_registered : false,
-      line_source:m ? "ENTITY_ADS" : "No master match",
+      line_registered:s.line_registered,
+      line_source:"DATA corrected LINE flag",
       status:s.status||null,
       qty:s.qty,
       sales:s.sales,
@@ -428,21 +435,12 @@ const toolDefs=[
  {type:"function",name:"product_master_query",description:"Authoritative product/CAI lookup. Use for CAI, item code, SKU description, tyre pattern, product-code ranking or exact product identification.",parameters:{type:"object",properties:{query:{type:"string"},metric:{type:"string",enum:["sales","qty"]},limit:{type:"integer"}},required:["metric","limit"],additionalProperties:false}},
  {type:"function",name:"ad_product_mart",description:"Authoritative AD x product detail. Use when asking what products/CAIs a dealer bought, or a dealer's sales/qty by product.",parameters:{type:"object",properties:{ad_query:{type:"string"},product_query:{type:"string"},metric:{type:"string",enum:["sales","qty"]},limit:{type:"integer"},filters:{type:"object",additionalProperties:true}},required:["ad_query","metric","limit"],additionalProperties:false}},
  {type:"function",name:"product_buyer_mart",description:"Authoritative product buyer ranking. Use when asking which ADs bought a CAI/item/pattern the most. Can filter LINE registration status.",parameters:{type:"object",properties:{product_query:{type:"string"},line_status:{type:"string",enum:["all","registered","not_registered"]},metric:{type:"string",enum:["sales","qty"]},limit:{type:"integer"}},required:["product_query","metric","limit"],additionalProperties:false}},
-
  {type:"function",name:"sales_summary",description:"Get exact sales, quantity, AD count, monthly, distributor and segment summary under filters.",parameters:{type:"object",properties:{filters:{type:"object",additionalProperties:true}},additionalProperties:false}},
- {type:"function",name:"rank_ads",description:"Rank AD stores by sales value or tyre quantity under filters.",parameters:{type:"object",properties:{filters:{type:"object",additionalProperties:true},metric:{type:"string",enum:["sales","qty"]},limit:{type:"integer"}},required:["metric","limit"],additionalProperties:false}},
- {type:"function",name:"ad_lookup",description:"Find exact AD/dealer records by AD name, AD Code, or Distributor. Returns AD Code, store name, Distributor, Line registration, YTD sales and quantity. Use whenever the user asks for AD Code, dealer code, store identity, or searches a store by code/name.",parameters:{type:"object",properties:{query:{type:"string"},filters:{type:"object",additionalProperties:true},limit:{type:"integer"}},required:["query","limit"],additionalProperties:false}},
- {type:"function",name:"product_lookup",description:"Find product master records by CAI/product code, SKU/Item description, or tyre Pattern. Returns CAI code, Item description, Pattern, YTD quantity and sales. Use whenever the user asks for product code/CAI/item/SKU or what code belongs to a tyre.",parameters:{type:"object",properties:{query:{type:"string"},limit:{type:"integer"}},required:["query","limit"],additionalProperties:false}},
- {type:"function",name:"ad_product_detail",description:"Return product-level purchase detail for a specific AD identified by store name or AD Code. Can filter by CAI, Item/SKU or Pattern. Returns AD Code, CAI, Item, Pattern, YTD qty/sales and monthly breakdown. Use for questions like what products/codes a store bought.",parameters:{type:"object",properties:{ad_query:{type:"string"},product_query:{type:"string"},filters:{type:"object",additionalProperties:true},metric:{type:"string",enum:["sales","qty"]},limit:{type:"integer"}},required:["ad_query","metric","limit"],additionalProperties:false}},
- {type:"function",name:"product_buyers",description:"Find/rank AD stores that bought a given CAI/product code, Item/SKU or Pattern. Returns Distributor, AD Code, AD name, qty and sales. Use for questions like which AD bought CAI 616173 or top buyers of CITY EXTRA.",parameters:{type:"object",properties:{query:{type:"string"},metric:{type:"string",enum:["sales","qty"]},limit:{type:"integer"}},required:["query","metric","limit"],additionalProperties:false}},
- {type:"function",name:"rank_product_codes",description:"Rank CAI/product codes by sales or quantity, optionally filtered by product description or Pattern. Returns exact CAI and Item descriptions.",parameters:{type:"object",properties:{query:{type:"string"},metric:{type:"string",enum:["sales","qty"]},limit:{type:"integer"}},required:["metric","limit"],additionalProperties:false}},
  {type:"function",name:"rank_patterns",description:"Rank tyre patterns by sales value or quantity.",parameters:{type:"object",properties:{filters:{type:"object",additionalProperties:true},metric:{type:"string",enum:["sales","qty"]},limit:{type:"integer"}},required:["metric","limit"],additionalProperties:false}},
  {type:"function",name:"monthly_trend",description:"Get Jan-Aug monthly trend for the selected scope.",parameters:{type:"object",properties:{filters:{type:"object",additionalProperties:true}},additionalProperties:false}},
  {type:"function",name:"compare_months",description:"Compare two months by AD, pattern, distributor or segment and rank decline/growth.",parameters:{type:"object",properties:{filters:{type:"object",additionalProperties:true},month_a:{type:"integer",minimum:1,maximum:8},month_b:{type:"integer",minimum:1,maximum:8},group_by:{type:"string",enum:["ad","pattern","distributor","segment"]},metric:{type:"string",enum:["sales","qty"]},direction:{type:"string",enum:["decline","growth"]},limit:{type:"integer"}},required:["month_a","month_b","group_by","metric","direction","limit"],additionalProperties:false}},
  {type:"function",name:"big_retail_summary",description:"Analyze only Big Retail stores, including segment mix and top Big Retail ADs.",parameters:{type:"object",properties:{filters:{type:"object",additionalProperties:true},metric:{type:"string",enum:["sales","qty"]},limit:{type:"integer"}},required:["metric","limit"],additionalProperties:false}},
- {type:"function",name:"store_detail",description:"Find store(s) by partial name and return monthly, segment and pattern detail.",parameters:{type:"object",properties:{name:{type:"string"},filters:{type:"object",additionalProperties:true}},required:["name"],additionalProperties:false}},
  {type:"function",name:"registration_summary",description:"LINE OA / Line Register status only. Use this for questions about Line registration, LINE OA registration, registered vs not registered stores, or which unregistered stores have high sales. Returns unique store counts plus top unregistered stores by sales. NEVER use Mission registration as a substitute.",parameters:{type:"object",properties:{filters:{type:"object",additionalProperties:true}},additionalProperties:false}},
- {type:"function",name:"line_unregistered_stores",description:"Return exact store names and Distributor for LINE OA / Line Register stores that are NOT registered, ranked by sales value or quantity. Use this whenever the user asks 'ร้านไหน', 'ชื่อร้าน', top unregistered LINE stores, or wants the actual store list. This is LINE registration only, not Mission.",parameters:{type:"object",properties:{filters:{type:"object",additionalProperties:true},metric:{type:"string",enum:["sales","qty"]},limit:{type:"integer"}},required:["metric","limit"],additionalProperties:false}},
  {type:"function",name:"cai_opportunities",description:"Get exact CAI pair opportunities using dashboard size tiers: Small 500-1499, Medium 1500-4999, Large 5000+, cross-distributor peer median, excluding AD below 500 tyres.",parameters:{type:"object",properties:{filters:{type:"object",additionalProperties:true},limit:{type:"integer"}},required:["limit"],additionalProperties:false}},
  {type:"function",name:"mission_summary",description:"MISSION registration only (Join Mission / Mission campaign). Use ONLY when the user explicitly asks about Mission or Join Mission. Mission registration is different from LINE OA / Line Register.",parameters:{type:"object",properties:{filters:{type:"object",additionalProperties:true}},additionalProperties:false}}
 ];
@@ -604,7 +602,7 @@ function makeVisualization(toolName,result,args,question){
 const SYSTEM=`You are the AI Sales Analyst inside Michelin Thailand's two-wheel sell-out dashboard. Data period is Jan-Aug 2026 unless a tool says otherwise.
 
 DATA ARCHITECTURE:
-1) AD master: ad_master_query / ad_rank_mart. This is the authoritative source for AD Name, AD Code, Distributor and LINE registration status.
+1) AD master: ad_master_query / ad_rank_mart. This is the ONLY authoritative source for AD Name, AD Code, Distributor and LINE registration status. Its LINE status comes from the dashboard's corrected DATA flag.
 2) Product master: product_master_query. This is the authoritative source for CAI / item / SKU / pattern identity.
 3) AD x Product mart: ad_product_mart / product_buyer_mart. This is the authoritative source for dealer-product relationships.
 4) Sales fact tools: sales_summary, monthly_trend, compare_months, big_retail_summary, etc. Use these for aggregated sales analysis.
@@ -612,7 +610,7 @@ DATA ARCHITECTURE:
 
 RULES:
 - Use calculation/data-mart tools for every numeric or entity claim. Never invent values, dealer names, AD Codes or CAIs.
-- LINE Register / LINE OA questions MUST use AD master/data-mart tools. Never infer LINE status from Mission or from transaction-row flags.
+- LINE Register / LINE OA questions MUST use ad_master_query or ad_rank_mart. Never use generic ranking tools for LINE questions. Never infer LINE status from Mission or ENTITY_ADS.
 - If the user asks "ร้านไหน", "ชื่อร้าน", Top AD, AD Code, or registered/not registered dealer lists, use ad_rank_mart or ad_master_query.
 - If the user asks for CAI / SKU / item code / product code, use product_master_query.
 - If the user asks what a dealer bought, use ad_product_mart.
@@ -687,9 +685,18 @@ const hist=history
       let result;
       const currentQ=norm(question);
       const missionExplicit=/\bmission\b|join\s*mission|มิชชั่น|มิสชั่น/.test(currentQ);
+      const lineExplicit=/line\s*register|line\s*registration|line\s*oa|ลงทะเบียน\s*line|ลงทะเบียนไลน์|ไลน์\s*register/.test(currentQ);
+      const wantsUnregistered=/ยังไม่ได้ลงทะเบียน|ยังไม่ลงทะเบียน|ไม่ได้ลงทะเบียน|ไม่ลงทะเบียน|not\s*registered|unregistered/.test(currentQ);
+      const wantsRegistered=lineExplicit && !wantsUnregistered && /ลงทะเบียนแล้ว|registered/.test(currentQ);
+
       if(call.name==="mission_summary" && !missionExplicit){
         result={error:"Mission data is only allowed when the CURRENT question explicitly mentions Mission / Join Mission."};
       }else{
+        // AD master is authoritative for LINE status. Force the requested LINE state into mart queries.
+        if(call.name==="ad_rank_mart" || call.name==="ad_master_query" || call.name==="product_buyer_mart"){
+          if(lineExplicit && wantsUnregistered)args.line_status="not_registered";
+          else if(lineExplicit && wantsRegistered)args.line_status="registered";
+        }
         result=runTool(call.name,args,baseFilters);
       }
       lastTool={name:call.name,args,result};
@@ -707,7 +714,7 @@ const hist=history
     ? makeVisualization(lastTool.name,lastTool.result,lastTool.args,question)
     : null;
 
-  return json({answer,model,backend_version:"V11.1",visualization});
+  return json({answer,model,backend_version:"V11.2",visualization});
 }
 
 function authOK(request){
@@ -729,7 +736,7 @@ export default async (request, context) => {
     return json({
       ok:!!process.env.OPENAI_API_KEY,
       model:process.env.OPENAI_MODEL||"gpt-5.4-mini",
-      backend_version:"V11.1",
+      backend_version:"V11.2",
       data_rows:DATA.length,
       ad_master_rows:adm.length,
       ad_master_registered:adm.filter(x=>x.line_registered).length,
