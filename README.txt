@@ -33,3 +33,10 @@ V10.17 AUTO-CHART OPTIMIZATION
 - No external chart library/CDN is used.
 - Supports auto donut/bar/line charts for Big Retail, segment mix, monthly trend, rankings, registration, store trend, CAI opportunity, and Mission.
 - AI history reduced to last 6 turns and output cap reduced to 1,000 tokens to reduce API cost while preserving normal dashboard Q&A.
+
+V10.18 REGISTRATION FIX
+- Separates LINE OA / Line Register from Mission / Join Mission.
+- AI must use registration_summary for Line registration questions.
+- registration_summary now returns unique store counts and top unregistered stores by sales.
+- Mission registration can no longer be described as Line registration.
+- LINE registration donut uses unique store counts when the question is store-based.
