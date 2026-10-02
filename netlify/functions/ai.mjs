@@ -590,12 +590,12 @@ function makeVisualization(toolName,result,args,question){
   if(toolName==="product_buyers" && Array.isArray(result)){
     if(!asksVisual)return null;
     const metric=args?.metric==="qty"?"qty":"sales";
-    return {type:"bar",title:`Top Product Buyers by ${{metric==="qty"?"Quantity":"Sales"}}`,format:metric==="qty"?"number":"currency",items:result.slice(0,10).map(x=>({label:`${x.ad} · ${x.distributor}`,value:Number(x[metric]||0)}))};
+    return {type:"bar",title:`Top Product Buyers by ${metric==="qty"?"Quantity":"Sales"}`,format:metric==="qty"?"number":"currency",items:result.slice(0,10).map(x=>({label:`${x.ad} · ${x.distributor}`,value:Number(x[metric]||0)}))};
   }
   if(toolName==="rank_product_codes" && Array.isArray(result)){
     if(!asksVisual)return null;
     const metric=args?.metric==="qty"?"qty":"sales";
-    return {type:"bar",title:`Top CAI by ${{metric==="qty"?"Quantity":"Sales"}}`,format:metric==="qty"?"number":"currency",items:result.slice(0,10).map(x=>({label:`${x.cai} · ${x.pattern||x.item}`,value:Number(x[metric]||0)}))};
+    return {type:"bar",title:`Top CAI by ${metric==="qty"?"Quantity":"Sales"}`,format:metric==="qty"?"number":"currency",items:result.slice(0,10).map(x=>({label:`${x.cai} · ${x.pattern||x.item}`,value:Number(x[metric]||0)}))};
   }
 
   return null;
@@ -707,7 +707,7 @@ const hist=history
     ? makeVisualization(lastTool.name,lastTool.result,lastTool.args,question)
     : null;
 
-  return json({answer,model,backend_version:"V11",visualization});
+  return json({answer,model,backend_version:"V11.1",visualization});
 }
 
 function authOK(request){
@@ -729,7 +729,7 @@ export default async (request, context) => {
     return json({
       ok:!!process.env.OPENAI_API_KEY,
       model:process.env.OPENAI_MODEL||"gpt-5.4-mini",
-      backend_version:"V11",
+      backend_version:"V11.1",
       data_rows:DATA.length,
       ad_master_rows:adm.length,
       ad_master_registered:adm.filter(x=>x.line_registered).length,
