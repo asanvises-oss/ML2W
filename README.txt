@@ -40,3 +40,17 @@ V10.18 REGISTRATION FIX
 - registration_summary now returns unique store counts and top unregistered stores by sales.
 - Mission registration can no longer be described as Line registration.
 - LINE registration donut uses unique store counts when the question is store-based.
+
+V10.19 LINE STORE LIST + SMART VISUALS
+- Added dedicated line_unregistered_stores tool so AI can return exact store names + Distributor.
+- AI must use it when the user asks which LINE-unregistered stores have high sales.
+- Charts are no longer forced for every answer.
+- List/name/detail questions return text only unless the user explicitly asks for a chart/comparison/ranking.
+
+V10.20 ENTITY-LEVEL AI LOOKUP
+- AI can now retrieve exact AD-level information including Distributor, AD name and AD Code.
+- AI can retrieve CAI/product code, Item/SKU description and Pattern.
+- Added product purchases by AD, and buyer lists by product/CAI.
+- Added top CAI ranking tool.
+- Lookup/detail/code questions stay text-first; charts appear only when ranking/comparison/trend/share visualization is useful or requested.
+- Enriched lookup metadata was generated from Sell_Out_YTD27R2_ADCode_LineRegister_Checked.xlsx.
