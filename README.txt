@@ -62,3 +62,9 @@ V10.21 LINE REGISTRATION RELIABILITY FIX
 - Those questions bypass AI tool selection and are generated from the authoritative store-level list.
 - This prevents overall Top AD rankings (e.g. registered high-sales stores) from being mislabeled as unregistered.
 - No chart is shown for the deterministic store-list answer.
+
+V10.22 YES/NO LINE REGISTER FIX
+- Parses Line Register as Yes/No rather than Number(...).
+- Store-level status: any Yes row makes the whole AD registered.
+- Health response shows backend_version, raw Line Register values, and store counts.
+- AI status badge shows V10.22 when the new backend is live.

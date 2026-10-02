@@ -7,6 +7,12 @@ const MISSION_DATA=[{"adCode":"82001309","storeName":"Mototireland","missionRegi
 
 const MONTHS={1:"Jan",2:"Feb",3:"Mar",4:"Apr",5:"May",6:"Jun",7:"Jul",8:"Aug"};
 const norm=s=>String(s??"").trim().toLowerCase();
+const lineFlag=v=>{
+  const s=norm(v);
+  if(["1","yes","y","true","registered","register","ลงทะเบียน"].includes(s))return true;
+  if(["0","no","n","false","not registered","not register","unregistered","ยังไม่ลงทะเบียน","ไม่ลงทะเบียน"].includes(s))return false;
+  return false;
+};
 const num=x=>Number(x||0);
 function mergedFilters(base={},o={}){
   const f={...base};
@@ -18,7 +24,7 @@ const STORE_LINE_STATUS=(()=>{
   for(const r of DATA){
     const k=norm(r[0])+"\u0001"+norm(r[1]);
     if(!m.has(k))m.set(k,false);
-    if(Number(r[4])===1)m.set(k,true);
+    if(lineFlag(r[4]))m.set(k,true);
   }
   return m;
 })();
@@ -536,11 +542,23 @@ export default async (request, context) => {
   const action=url.searchParams.get("action")||"";
 
   if(request.method==="GET" && action==="health"){
+    const lineValues=[...new Set(DATA.map(r=>String(r[4]??"").trim()))].slice(0,20);
+    const lineStoreMap=new Map();
+    for(const r of DATA){
+      const k=norm(r[0])+"\u0001"+norm(r[1]);
+      if(!lineStoreMap.has(k))lineStoreMap.set(k,false);
+      if(lineFlag(r[4]))lineStoreMap.set(k,true);
+    }
+    const lineRegisteredStores=[...lineStoreMap.values()].filter(Boolean).length;
     return json({
       ok:!!process.env.OPENAI_API_KEY,
       model:process.env.OPENAI_MODEL||"gpt-5.4-mini",
+      backend_version:"V10.22",
       data_rows:DATA.length,
-      cai_groups:CAI_PAIR_GROUPS.length
+      cai_groups:CAI_PAIR_GROUPS.length,
+      line_register_raw_values:lineValues,
+      line_registered_stores:lineRegisteredStores,
+      line_not_registered_stores:lineStoreMap.size-lineRegisteredStores
     });
   }
 
