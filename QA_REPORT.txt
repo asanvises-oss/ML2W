@@ -1,0 +1,40 @@
+MICHELIN DASHBOARD V11.4 QA REPORT
+==================================
+Backend syntax: PASS
+Frontend JS syntax: PASS
+Total AD reconciliation: 757
+LINE registered: 353
+LINE not registered: 404
+Reconciliation check: PASS
+
+Expected Top 10 LINE not registered by Sales:
+1. RTY | ออดเซอร์วิส บางบ่อ (สด) | 522,275
+2. EPB | บ้านช่างการยาง | 463,763
+3. EPB | ฮาเล่ย์-พัทยา | 311,229
+4. OEM | ร้าน 13 ยานยนต์ | 306,924
+5. MGP | บริษัท โมโตริ จํากัด (สํานักงานใหญ่) | 286,321
+6. MGP | AP MOTO TIRE ราชเทวี | 263,406
+7. Sompol | ร้าน สงขลาออโต้พาร์ท | 217,737
+8. MGP | ร้าน KING KONG RIDER อยุธยา | 215,851
+9. RTY | ทีทีอะไหล่ สปป-ลาว | 181,841
+10. OEM | ร้าน ชัยณรงค์มอเตอร์เซลล์ | 172,007
+
+Entity alias tests:
+สมพล -> Sompol : PASS
+สมพลยางยนต์ -> Sompol : PASS
+เอ็มจีพี -> MGP : PASS
+เอพีบี/อีพีบี -> EPB : PASS
+เอ็นเควาย -> NKY : PASS
+อาร์ทีวาย -> RTY : PASS
+โออีเอ็ม -> OEM : PASS
+
+Feature checks:
+AD fuzzy resolver exposed: PASS
+Ambiguity ask-back instruction: PASS
+Attachment UI: PASS
+Image input support: PASS
+PDF/Office input_file support: PASS
+External Web Search mode: PASS
+External-data warning: PASS
+External sources display: PASS
+Mission/LINE separation retained: PASS

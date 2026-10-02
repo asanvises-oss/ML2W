@@ -106,3 +106,20 @@ V11.2 ROOT-CAUSE FIX
 - LINE intent is validated at the authoritative mart tool boundary; not-registered/registered status is forced into the query args.
 - Mission stays completely separate.
 - Expected corrected store counts from embedded DATA: 353 registered, 404 not registered, 757 total.
+
+V11.3 REGISTRATION SUMMARY ROOT FIX
+- Fixed registration_summary counting only the first 50 ADs.
+- Root cause: registration_summary called adRankMart(), whose return limit is capped at 50 for model safety.
+- registration_summary now aggregates the complete filtered store population directly.
+- Dealer-name list questions are explicitly routed to ad_rank_mart/ad_master_query, not registration_summary.
+- Expected full population with no filters: 757 ADs = 353 registered + 404 not registered.
+
+V11.4 STABILIZED AI UX
+- Distributor alias normalization (Thai/English aliases -> canonical distributor).
+- AD fuzzy/partial matching with explicit ambiguity resolution; AI is instructed to ask the user to choose rather than guess.
+- Attach up to 3 files/images (3 MB each). Images use vision input; PDF/Office files use Responses API input_file; CSV/TXT are sent as text context.
+- Three source modes: Dashboard only (default), Combined/Auto external, External Web Search.
+- Web search uses OpenAI Responses API web_search and visibly prefixes external answers with a warning.
+- External source links are displayed when returned by the API.
+- Dashboard data remains the authoritative internal source and is never silently replaced by web figures.
+- QA_REPORT.txt included with reconciliation and feature checks.

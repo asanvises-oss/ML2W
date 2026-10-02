@@ -978,6 +978,14 @@ body.netlify-access-locked{overflow:hidden}
   .ai-bar-row{grid-template-columns:minmax(75px,115px) 1fr auto}
 }
 
+
+.ai-modebar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:8px 0 6px}
+.ai-modebar select{height:34px;border:1px solid #ccd5df;border-radius:8px;background:#fff;padding:0 9px;color:#172b4d;font-weight:700}
+.ai-attachments{display:flex;gap:6px;flex-wrap:wrap;margin:4px 0 8px}
+.ai-attach-chip{display:inline-flex;align-items:center;gap:6px;background:#f3f6fa;border:1px solid #dce3eb;border-radius:999px;padding:5px 9px;font-size:11px;color:#344563}
+.ai-attach-chip button{border:0;background:transparent;cursor:pointer;font-weight:900;color:#6b778c;padding:0}
+.ai-source-box{margin-top:10px;padding:9px 11px;background:#fff8e7;border:1px solid #f0d995;border-radius:9px;font-size:11px;line-height:1.5}
+.ai-source-box a{color:#173d76;word-break:break-all}
 </style>
 </head>
 <body>
@@ -1379,20 +1387,31 @@ body.netlify-access-locked{overflow:hidden}
         <div class="ai-chat-head">
           <div>
             <div class="ai-title">✦ AI Sales Analyst</div>
-            <div class="ai-sub">Ask in Thai or English. AI answers from calculation tools on the dashboard dataset and uses OpenAI through the protected backend.</div>
+            <div class="ai-sub">Ask in Thai or English. Dashboard data is the default source. Optional external search and file/image analysis are clearly labeled.</div>
           </div>
           <div class="ai-status" id="aiStatus">Backend not checked</div>
         </div>
         <div class="ai-messages" id="aiMessages">
           <div class="ai-msg assistant">ลองถามได้เลย เช่น “เดือนล่าสุด Pattern ไหนยอดตกมากสุดเทียบเดือนก่อน” หรือ “MGP ร้านไหนยอดตกต่อเนื่อง 2 เดือน”</div>
         </div>
+        <div class="ai-modebar">
+          <select id="aiMode" title="AI data source mode">
+            <option value="dashboard">Dashboard Data only</option>
+            <option value="auto">Combined / Auto external search</option>
+            <option value="web">External Web Search</option>
+          </select>
+          <button type="button" class="ai-small-btn" id="aiAttachBtn">＋ Attach</button>
+          <input id="aiFileInput" type="file" multiple accept=".png,.jpg,.jpeg,.webp,.pdf,.csv,.txt,.xlsx,.xls" style="display:none">
+          <span class="ai-note" id="aiModeNote">Internal dashboard data only</span>
+        </div>
+        <div id="aiAttachments" class="ai-attachments"></div>
         <div class="ai-compose">
           <textarea id="aiInput" placeholder="ถามข้อมูลจาก Dashboard… เช่น เดือนนี้สินค้าตัวไหนตก?"></textarea>
           <button type="button" id="aiSend">Ask AI</button>
         </div>
         <div class="ai-actions">
           <button type="button" class="ai-small-btn" id="aiClear">Clear chat</button>
-          <span class="ai-note">Enter = send · Shift+Enter = new line</span>
+          <span class="ai-note">Enter = send · Shift+Enter = new line · Max 3 attachments, 3 MB each</span>
         </div>
       </div>
       <div class="ai-side">
@@ -1414,7 +1433,7 @@ body.netlify-access-locked{overflow:hidden}
         </div>
         <div class="ai-side-card">
           <div class="ai-side-title">Data scope</div>
-          <div class="ai-note">AI scope includes Distributor, AD, registration, month, Segment, Pattern, Qty, Sales plus the CAI front/rear opportunity pairs, tyre sizes and suitable vehicle-model context used in this dashboard.</div>
+          <div class="ai-note">AI scope includes Distributor, AD, registration, month, Segment, Pattern, Qty, Sales plus the CAI front/rear opportunity pairs, tyre sizes and suitable vehicle-model context used in this dashboard.</div><div class="ai-note" style="margin-top:10px;padding-top:10px;border-top:1px solid #e5e9ef"><strong>External Search:</strong> when enabled, answers are marked with a warning. External figures are never treated as Michelin sell-out data.</div>
         </div>
       </div>
     </div>
@@ -2702,7 +2721,7 @@ async function checkAIBackend(){
     const r=await fetch(NETLIFY_AI_ENDPOINT+"?action=health",{cache:"no-store",headers:aiHeaders()});
     if(!r.ok)throw new Error();
     const j=await r.json();
-    $("aiStatus").textContent=j.ok?`AI ready · UI V11.2 · ${j.backend_version||""} · ${j.model}`:"AI backend needs OPENAI_API_KEY";
+    $("aiStatus").textContent=j.ok?`AI ready · UI V11.4 · ${j.backend_version||""} · ${j.model}`:"AI backend needs OPENAI_API_KEY";
     $("aiStatus").className=j.ok?"ai-status ok":"ai-status err";
   }catch(e){
     $("aiStatus").textContent="AI backend unavailable";
@@ -2710,12 +2729,43 @@ async function checkAIBackend(){
   }
 }
 
+
+let AI_ATTACHMENTS=[];
+
+function fileToBase64(file){
+  return new Promise((resolve,reject)=>{
+    const r=new FileReader();
+    r.onload=()=>resolve(String(r.result||"").split(",")[1]||"");
+    r.onerror=reject;
+    r.readAsDataURL(file);
+  });
+}
+function renderAIAttachments(){
+  const box=$("aiAttachments");
+  if(!box)return;
+  box.innerHTML=AI_ATTACHMENTS.map((a,i)=>`<span class="ai-attach-chip">${escapeHtml(a.name)} <button type="button" data-i="${i}">×</button></span>`).join("");
+  box.querySelectorAll("button").forEach(b=>b.addEventListener("click",()=>{
+    AI_ATTACHMENTS.splice(Number(b.dataset.i),1);renderAIAttachments();
+  }));
+}
+function appendAISources(sources){
+  if(!Array.isArray(sources)||!sources.length)return;
+  const msgs=$("aiMessages");
+  const last=msgs?.querySelector(".ai-msg.assistant:last-of-type");
+  if(!last)return;
+  const d=document.createElement("div");
+  d.className="ai-source-box";
+  d.innerHTML="<strong>External sources</strong><br>"+sources.map(s=>`• <a href="${escapeHtml(s.url)}" target="_blank" rel="noopener">${escapeHtml(s.title||s.url)}</a>`).join("<br>");
+  last.appendChild(d);
+}
 async function askAI(){
   const input=$("aiInput"),btn=$("aiSend");
   const question=input.value.trim();
-  if(!question)return;
-  addAIMessage("user",question);
-  AI_HISTORY.push({role:"user",content:question});
+  if(!question && !AI_ATTACHMENTS.length)return;
+
+  const shown=question || `[Attached ${AI_ATTACHMENTS.length} file(s)]`;
+  addAIMessage("user",shown);
+  AI_HISTORY.push({role:"user",content:shown});
   input.value="";
   btn.disabled=true;btn.textContent="Thinking…";
   try{
@@ -2723,15 +2773,19 @@ async function askAI(){
       method:"POST",
       headers:aiHeaders({"Content-Type":"application/json"}),
       body:JSON.stringify({
-        question,
+        question:question||"Please analyze the attached file(s).",
         filters:currentAIFilters(),
-        history:AI_HISTORY.slice(-10)
+        history:AI_HISTORY.slice(-10),
+        mode:$("aiMode")?.value||"dashboard",
+        attachments:AI_ATTACHMENTS
       })
     });
     const j=await r.json();
     if(!r.ok)throw new Error(j.detail||j.error||"AI request failed");
     addAIMessage("assistant",j.answer,j.visualization||null);
+    appendAISources(j.sources||[]);
     AI_HISTORY.push({role:"assistant",content:j.answer});
+    AI_ATTACHMENTS=[];renderAIAttachments();
   }catch(e){
     addAIMessage("system",`AI error: ${e.message}`);
   }finally{
@@ -2739,11 +2793,35 @@ async function askAI(){
   }
 }
 $("aiSend").addEventListener("click",askAI);
+$("aiAttachBtn")?.addEventListener("click",()=>$("aiFileInput")?.click());
+$("aiFileInput")?.addEventListener("change",async e=>{
+  const files=[...(e.target.files||[])].slice(0,3-AI_ATTACHMENTS.length);
+  for(const f of files){
+    if(f.size>3*1024*1024){
+      addAIMessage("system",`File too large: ${f.name}. Maximum is 3 MB per file.`);
+      continue;
+    }
+    const data=await fileToBase64(f);
+    AI_ATTACHMENTS.push({name:f.name,mime:f.type||"application/octet-stream",data});
+  }
+  e.target.value="";
+  renderAIAttachments();
+});
+$("aiMode")?.addEventListener("change",e=>{
+  const note=$("aiModeNote");
+  if(!note)return;
+  note.textContent=e.target.value==="dashboard"
+    ?"Internal dashboard data only"
+    :e.target.value==="web"
+      ?"External search enabled — answers will be warned/labeled"
+      :"Dashboard + external search when needed";
+});
+
 $("aiInput").addEventListener("keydown",e=>{
   if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();askAI()}
 });
 $("aiClear").addEventListener("click",()=>{
-  AI_HISTORY.length=0;
+  AI_HISTORY.length=0;AI_ATTACHMENTS=[];renderAIAttachments();
   $("aiMessages").innerHTML='<div class="ai-msg assistant">Chat cleared. Ask a new question about the dashboard.</div>';
 });
 document.querySelectorAll(".ai-chip").forEach(b=>b.addEventListener("click",()=>{

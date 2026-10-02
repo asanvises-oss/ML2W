@@ -205,6 +205,94 @@ function rankProductCodes(args){
   return PRODUCT_CODES.filter(x=>!q||norm(x.item).includes(q)||norm(x.pattern).includes(q)||norm(x.cai).includes(q)).sort((a,b)=>b[metric]-a[metric]).slice(0,limit);
 }
 
+
+const DISTRIBUTOR_ALIASES={
+  "สมพล":"Sompol","สมพลยางยนต์":"Sompol","sompol":"Sompol",
+  "เอพีบี":"EPB","อีพีบี":"EPB","epb":"EPB",
+  "เอ็มจีพี":"MGP","mgp":"MGP",
+  "เอ็นเควาย":"NKY","nky":"NKY",
+  "อาร์ทีวาย":"RTY","อาร์วายที":"RTY","rty":"RTY",
+  "โออีเอ็ม":"OEM","oem":"OEM"
+};
+
+function aliasNormalizeQuestion(text){
+  let out=String(text||"");
+  const hits=[];
+  for(const [alias,canon] of Object.entries(DISTRIBUTOR_ALIASES)){
+    const re=new RegExp(alias.replace(/[.*+?^${}()|[\]\\]/g,"\\$&"),"gi");
+    if(re.test(out)){
+      out=out.replace(re,canon);
+      hits.push({alias,canonical:canon});
+    }
+  }
+  return {text:out,hits};
+}
+
+function adNameNorm(s){
+  return norm(s)
+    .replace(/บริษัท|ห้างหุ้นส่วนจำกัด|หจก\.?|จำกัด|สาขาสำนักงานใหญ่|สำนักงานใหญ่|ร้าน/g,"")
+    .replace(/[().,_\-\/\\\s]+/g,"")
+    .replace(/co\.?ltd\.?|companylimited|limited/g,"")
+    .trim();
+}
+
+function editDistance(a,b){
+  a=String(a||""); b=String(b||"");
+  const m=a.length,n=b.length;
+  if(!m)return n;if(!n)return m;
+  const prev=Array.from({length:n+1},(_,i)=>i), cur=new Array(n+1);
+  for(let i=1;i<=m;i++){
+    cur[0]=i;
+    for(let j=1;j<=n;j++){
+      cur[j]=Math.min(
+        cur[j-1]+1,
+        prev[j]+1,
+        prev[j-1]+(a[i-1]===b[j-1]?0:1)
+      );
+    }
+    for(let j=0;j<=n;j++)prev[j]=cur[j];
+  }
+  return prev[n];
+}
+
+function similarity(a,b){
+  a=adNameNorm(a);b=adNameNorm(b);
+  if(!a||!b)return 0;
+  if(a===b)return 1;
+  if(a.includes(b)||b.includes(a)){
+    const ratio=Math.min(a.length,b.length)/Math.max(a.length,b.length);
+    return Math.max(.82,.82+.18*ratio);
+  }
+  return 1-editDistance(a,b)/Math.max(a.length,b.length);
+}
+
+function adResolve(args){
+  const query=String(args.query||"").trim();
+  const q=adNameNorm(query);
+  if(!q)return {status:"none",query,candidates:[]};
+
+  const rows=[...buildADMaster().values()];
+  const codeExact=rows.filter(x=>String(x.ad_code||"").trim()===query);
+  if(codeExact.length===1)return {status:"exact",query,match:codeExact[0],candidates:codeExact};
+
+  const scored=rows.map(x=>({...x,confidence:similarity(query,x.ad)}))
+    .filter(x=>x.confidence>=0.55)
+    .sort((a,b)=>b.confidence-a.confidence || b.sales-a.sales)
+    .slice(0,8);
+
+  if(!scored.length)return {status:"none",query,candidates:[]};
+
+  const top=scored[0], second=scored[1];
+  if(top.confidence>=0.94 && (!second || top.confidence-second.confidence>=0.08)){
+    return {status:"exact",query,match:top,candidates:scored.slice(0,3)};
+  }
+
+  if(top.confidence>=0.72){
+    return {status:"ambiguous",query,candidates:scored.slice(0,5)};
+  }
+
+  return {status:"low_confidence",query,candidates:scored.slice(0,5)};
+}
 function adMasterQuery(args,base){
   const q=norm(args.query||"");
   const limit=Math.min(Math.max(Number(args.limit)||20,1),50);
@@ -377,14 +465,34 @@ function storeDetail(args,base){
   return [...byStore].slice(0,8).map(([k,rs])=>{const [dist,ad]=k.split("\u0001");const s=summary(rs);const meta=adMetaFor(dist,ad);return {distributor:dist,ad,ad_code:meta?.ad_code||null,line_registered:meta?.line_registered??null,...s,monthly:[...aggregate(rs,r=>r[3])].map(([m,x])=>({month:Number(m),label:MONTHS[m],qty:x.qty,sales:x.sales})).sort((a,b)=>a.month-b.month),segments:[...aggregate(rs,r=>r[5])].map(([segment,x])=>({segment,qty:x.qty,sales:x.sales})).sort((a,b)=>b.sales-a.sales),patterns:[...aggregate(rs,r=>r[6])].map(([pattern,x])=>({pattern,qty:x.qty,sales:x.sales})).sort((a,b)=>b.sales-a.sales).slice(0,20)};});
 }
 function registrationSummary(args,base){
-  const rows=adRankMart({
-    filters:args.filters||{},
-    metric:"sales",
-    limit:5000
-  },base);
+  const f={...(args.filters||{})};
+  delete f.line;
 
-  const reg=rows.filter(x=>x.line_registered);
-  const no=rows.filter(x=>!x.line_registered);
+  const rows=filteredRows(base,f);
+  const by=new Map();
+
+  for(const r of rows){
+    const key=norm(r[0])+"\u0001"+norm(r[1]);
+    if(!by.has(key)){
+      const m=adMasterRecord(r[0],r[1]);
+      by.set(key,{
+        distributor:r[0],
+        ad:r[1],
+        ad_code:m?.ad_code||null,
+        line_registered:m?.line_registered===true,
+        qty:0,
+        sales:0
+      });
+    }
+    const x=by.get(key);
+    x.qty+=num(r[7]);
+    x.sales+=num(r[8]);
+  }
+
+  const all=[...by.values()];
+  const reg=all.filter(x=>x.line_registered);
+  const no=all.filter(x=>!x.line_registered);
+
   const sum=a=>({
     unique_ad:a.length,
     qty:a.reduce((s,x)=>s+num(x.qty),0),
@@ -392,7 +500,8 @@ function registrationSummary(args,base){
   });
 
   return {
-    source:"AD_MASTER + SALES_FACT",
+    source:"AD_MASTER + SALES_FACT (full store population)",
+    total_store_count:all.length,
     registered_store_count:reg.length,
     not_registered_store_count:no.length,
     registered:sum(reg),
@@ -430,6 +539,8 @@ function missionSummary(args){
 
 
 const toolDefs=[
+ {type:"function",name:"ad_resolve",description:"Resolve an incomplete, shortened, misspelled, Thai/English dealer name or AD Code before answering dealer-specific questions. If status is ambiguous or low_confidence, ASK THE USER to choose from candidates instead of guessing.",parameters:{type:"object",properties:{query:{type:"string"}},required:["query"],additionalProperties:false}},
+
  {type:"function",name:"ad_master_query",description:"Authoritative AD master lookup. Returns exact Distributor, AD Name, AD Code, LINE registration status, store status and YTD sales/qty. Use for AD Code, dealer identity, LINE registration status, or exact dealer lookup.",parameters:{type:"object",properties:{query:{type:"string"},line_status:{type:"string",enum:["all","registered","not_registered"]},metric:{type:"string",enum:["sales","qty"]},limit:{type:"integer"},filters:{type:"object",additionalProperties:true}},required:["metric","limit"],additionalProperties:false}},
  {type:"function",name:"ad_rank_mart",description:"Authoritative AD ranking from the AI data mart. Use for Top/Bottom AD questions, including LINE registered/not registered rankings, distributor/segment/pattern/month filters. Returns exact AD name, AD Code, Distributor, LINE status, Sales and Qty.",parameters:{type:"object",properties:{query:{type:"string"},line_status:{type:"string",enum:["all","registered","not_registered"]},metric:{type:"string",enum:["sales","qty"]},limit:{type:"integer"},filters:{type:"object",additionalProperties:true}},required:["metric","limit"],additionalProperties:false}},
  {type:"function",name:"product_master_query",description:"Authoritative product/CAI lookup. Use for CAI, item code, SKU description, tyre pattern, product-code ranking or exact product identification.",parameters:{type:"object",properties:{query:{type:"string"},metric:{type:"string",enum:["sales","qty"]},limit:{type:"integer"}},required:["metric","limit"],additionalProperties:false}},
@@ -444,7 +555,7 @@ const toolDefs=[
  {type:"function",name:"cai_opportunities",description:"Get exact CAI pair opportunities using dashboard size tiers: Small 500-1499, Medium 1500-4999, Large 5000+, cross-distributor peer median, excluding AD below 500 tyres.",parameters:{type:"object",properties:{filters:{type:"object",additionalProperties:true},limit:{type:"integer"}},required:["limit"],additionalProperties:false}},
  {type:"function",name:"mission_summary",description:"MISSION registration only (Join Mission / Mission campaign). Use ONLY when the user explicitly asks about Mission or Join Mission. Mission registration is different from LINE OA / Line Register.",parameters:{type:"object",properties:{filters:{type:"object",additionalProperties:true}},additionalProperties:false}}
 ];
-function runTool(name,args,base){switch(name){case"ad_master_query":return adMasterQuery(args,base);case"ad_rank_mart":return adRankMart(args,base);case"product_master_query":return productMasterQuery(args);case"ad_product_mart":return adProductMart(args);case"product_buyer_mart":return productBuyerMart(args);case"sales_summary":return salesSummary(args,base);case"rank_ads":return rankAds(args,base);case"ad_lookup":return adLookup(args,base);case"product_lookup":return productLookup(args);case"ad_product_detail":return adProductDetail(args);case"product_buyers":return productBuyers(args);case"rank_product_codes":return rankProductCodes(args);case"rank_patterns":return rankPatterns(args,base);case"monthly_trend":return monthlyTrend(args,base);case"compare_months":return compareMonths(args,base);case"big_retail_summary":return bigRetail(args,base);case"store_detail":return storeDetail(args,base);case"registration_summary":return registrationSummary(args,base);case"line_unregistered_stores":return lineUnregisteredStores(args,base);case"cai_opportunities":return caiOpportunities(args,base);case"mission_summary":return missionSummary(args);default:return {error:"Unknown tool"};}}
+function runTool(name,args,base){switch(name){case"ad_resolve":return adResolve(args);case"ad_master_query":return adMasterQuery(args,base);case"ad_rank_mart":return adRankMart(args,base);case"product_master_query":return productMasterQuery(args);case"ad_product_mart":return adProductMart(args);case"product_buyer_mart":return productBuyerMart(args);case"sales_summary":return salesSummary(args,base);case"rank_ads":return rankAds(args,base);case"ad_lookup":return adLookup(args,base);case"product_lookup":return productLookup(args);case"ad_product_detail":return adProductDetail(args);case"product_buyers":return productBuyers(args);case"rank_product_codes":return rankProductCodes(args);case"rank_patterns":return rankPatterns(args,base);case"monthly_trend":return monthlyTrend(args,base);case"compare_months":return compareMonths(args,base);case"big_retail_summary":return bigRetail(args,base);case"store_detail":return storeDetail(args,base);case"registration_summary":return registrationSummary(args,base);case"line_unregistered_stores":return lineUnregisteredStores(args,base);case"cai_opportunities":return caiOpportunities(args,base);case"mission_summary":return missionSummary(args);default:return {error:"Unknown tool"};}}
 
 
 
@@ -611,7 +722,8 @@ DATA ARCHITECTURE:
 RULES:
 - Use calculation/data-mart tools for every numeric or entity claim. Never invent values, dealer names, AD Codes or CAIs.
 - LINE Register / LINE OA questions MUST use ad_master_query or ad_rank_mart. Never use generic ranking tools for LINE questions. Never infer LINE status from Mission or ENTITY_ADS.
-- If the user asks "ร้านไหน", "ชื่อร้าน", Top AD, AD Code, or registered/not registered dealer lists, use ad_rank_mart or ad_master_query.
+- If the user asks "ร้านไหน", "ชื่อร้าน", Top AD, AD Code, or registered/not registered dealer lists, use ad_rank_mart or ad_master_query. Do NOT use registration_summary for a requested dealer-name list; registration_summary is only for aggregate counts/mix.
+- For dealer-specific questions where the dealer name is incomplete, shortened, misspelled, or could refer to multiple ADs, call ad_resolve FIRST. If it returns ambiguous or low_confidence, ask the user to choose from the candidate stores (show Distributor and AD Code when available). Never guess the dealer.
 - If the user asks for CAI / SKU / item code / product code, use product_master_query.
 - If the user asks what a dealer bought, use ad_product_mart.
 - If the user asks who bought a product most, use product_buyer_mart.
@@ -620,6 +732,9 @@ RULES:
 - Month mapping: 1 Jan, 2 Feb, 3 Mar, 4 Apr, 5 May, 6 Jun, 7 Jul, 8 Aug.
 - Keep answers concise and business-useful. For ranked lists, show Distributor · AD Name · AD Code when available · Sales/Qty.
 - Do not claim causation from sales data alone.
+- Distributor aliases are normalized before you see the question (e.g. สมพล → Sompol). Use the canonical distributor name in data tools.
+- Uploaded attachments are user-provided context, not dashboard truth. Clearly distinguish their information from dashboard data when relevant.
+- External web information must always be labeled as external and must not overwrite or silently reconcile dashboard figures.
 - Do not output chart JSON; the dashboard decides whether a visualization is useful.`;
 
 
@@ -648,6 +763,26 @@ function json(data,status=200){return new Response(JSON.stringify(data),{status,
 function extractOutputText(resp){
   const chunks=[];for(const item of resp?.output||[])if(item.type==="message")for(const c of item.content||[])if(c.type==="output_text"&&c.text)chunks.push(c.text);return chunks.join("\n").trim();
 }
+
+function extractWebSources(response){
+  const out=[];
+  for(const item of (response?.output||[])){
+    if(item?.type!=="message")continue;
+    for(const c of (item.content||[])){
+      for(const a of (c.annotations||[])){
+        const u=a?.url_citation||a;
+        if((a?.type==="url_citation"||u?.url) && u?.url){
+          const key=String(u.url);
+          if(!out.some(x=>x.url===key))out.push({title:u.title||u.url,url:key});
+        }
+      }
+    }
+  }
+  return out.slice(0,8);
+}
+function responseUsedWeb(response){
+  return (response?.output||[]).some(x=>x?.type==="web_search_call");
+}
 async function openAI(env,payload){
   const r=await fetch("https://api.openai.com/v1/responses",{method:"POST",headers:{"Authorization":`Bearer ${env.OPENAI_API_KEY}`,"Content-Type":"application/json"},body:JSON.stringify(payload)});
   const body=await r.json().catch(()=>({}));
@@ -657,22 +792,71 @@ async function openAI(env,payload){
 async function handleAsk(request,env){
   if(!env.OPENAI_API_KEY)return json({error:"OPENAI_API_KEY is not configured in Netlify Environment Variables."},503);
   const body=await request.json().catch(()=>({}));
-  const question=String(body?.question||"").trim();
-  if(!question)return json({error:"Question is required."},400);
+  const rawQuestion=String(body?.question||"").trim();
+  if(!rawQuestion)return json({error:"Question is required."},400);
 
+  const aliasInfo=aliasNormalizeQuestion(rawQuestion);
+  const question=aliasInfo.text;
   const baseFilters=body?.filters||{};
   const history=Array.isArray(body?.history)?body.history.slice(-6):[];
-const hist=history
+  const mode=["dashboard","auto","web"].includes(body?.mode)?body.mode:"dashboard";
+  const attachments=Array.isArray(body?.attachments)?body.attachments.slice(0,3):[];
+
+  const hist=history
     .filter(x=>x&&["user","assistant"].includes(x.role)&&typeof x.content==="string")
     .slice(0,-1)
     .map(x=>({role:x.role,content:x.content.slice(0,2500)}));
 
-  let input=[...hist,{role:"user",content:`Filters: ${JSON.stringify(baseFilters)}\nQuestion: ${question}`}];
+  const userContent=[
+    {type:"input_text",text:`Filters: ${JSON.stringify(baseFilters)}\nQuestion: ${question}${aliasInfo.hits.length?`\nEntity aliases resolved: ${JSON.stringify(aliasInfo.hits)}`:""}`}
+  ];
+
+  for(const a of attachments){
+    const name=String(a?.name||"attachment").slice(0,180);
+    const mime=String(a?.mime||"application/octet-stream");
+    const data=String(a?.data||"");
+    if(!data || data.length>5_000_000)continue;
+
+    if(mime.startsWith("image/")){
+      userContent.push({type:"input_image",image_url:`data:${mime};base64,${data}`,detail:"auto"});
+    }else if(mime==="text/plain" || mime==="text/csv"){
+      try{
+        const txt=atob(data);
+        userContent.push({type:"input_text",text:`\n[Uploaded file: ${name}]\n${txt.slice(0,60000)}`});
+      }catch{}
+    }else{
+      userContent.push({type:"input_file",filename:name,file_data:`data:${mime};base64,${data}`});
+    }
+  }
+
+  let input=[...hist,{role:"user",content:userContent}];
   const model=env.OPENAI_MODEL||"gpt-5.4-mini";
-  const requestCfg={model,instructions:SYSTEM,input,tools:toolDefs,tool_choice:"auto",store:false,reasoning:{effort:"low"},max_output_tokens:1000};
+
+  const tools=[...toolDefs];
+  if(mode==="auto"||mode==="web"){
+    tools.push({type:"web_search",search_context_size:"low"});
+  }
+
+  const modeInstruction=mode==="dashboard"
+    ? "\nEXTERNAL DATA MODE: OFF. Do not use web search. If the user asks for information unavailable in dashboard data, say it is outside dashboard scope and ask whether they want External Search."
+    : mode==="web"
+      ? "\nEXTERNAL DATA MODE: ON. Use web search for external/current facts. Clearly separate External Data from Dashboard Data and never overwrite dashboard figures with web figures."
+      : "\nEXTERNAL DATA MODE: AUTO. Use web search only when the requested fact is not available from dashboard tools or clearly needs current external information. Clearly separate External Data from Dashboard Data.";
+
+  const requestCfg={
+    model,
+    instructions:SYSTEM+modeInstruction,
+    input,
+    tools,
+    tool_choice:"auto",
+    store:false,
+    reasoning:{effort:"low"},
+    max_output_tokens:1200
+  };
 
   let response=await openAI(env,requestCfg);
   let lastTool=null;
+  let webUsed=responseUsedWeb(response);
 
   for(let step=0;step<5;step++){
     const calls=(response.output||[]).filter(x=>x.type==="function_call");
@@ -683,6 +867,7 @@ const hist=history
       let args={};
       try{args=JSON.parse(call.arguments||"{}");}catch{}
       let result;
+
       const currentQ=norm(question);
       const missionExplicit=/\bmission\b|join\s*mission|มิชชั่น|มิสชั่น/.test(currentQ);
       const lineExplicit=/line\s*register|line\s*registration|line\s*oa|ลงทะเบียน\s*line|ลงทะเบียนไลน์|ไลน์\s*register/.test(currentQ);
@@ -692,7 +877,6 @@ const hist=history
       if(call.name==="mission_summary" && !missionExplicit){
         result={error:"Mission data is only allowed when the CURRENT question explicitly mentions Mission / Join Mission."};
       }else{
-        // AD master is authoritative for LINE status. Force the requested LINE state into mart queries.
         if(call.name==="ad_rank_mart" || call.name==="ad_master_query" || call.name==="product_buyer_mart"){
           if(lineExplicit && wantsUnregistered)args.line_status="not_registered";
           else if(lineExplicit && wantsRegistered)args.line_status="registered";
@@ -702,19 +886,34 @@ const hist=history
       lastTool={name:call.name,args,result};
       input.push({type:"function_call_output",call_id:call.call_id,output:JSON.stringify(result)});
     }
+
     response=await openAI(env,{...requestCfg,input});
+    webUsed=webUsed||responseUsedWeb(response);
   }
 
-  const answer=extractOutputText(response);
+  let answer=extractOutputText(response);
   if(!answer)return json({error:"AI returned no text response."},500);
 
-  // Visualization is built deterministically from the calculation-tool result.
-  // It costs ZERO additional OpenAI tokens.
-  const visualization=lastTool
+  const sources=extractWebSources(response);
+  if(webUsed){
+    const warning="⚠️ **EXTERNAL DATA / ข้อมูลภายนอก Dashboard**\nข้อมูลส่วนนี้มาจากการค้นหาภายนอก ไม่ใช่ Michelin Sell-out Dashboard และอาจใช้คำนิยาม/ช่วงเวลาต่างจากข้อมูลภายใน\n\n";
+    answer=warning+answer;
+  }
+
+  const visualization=(lastTool && !["ad_resolve","ad_master_query","ad_rank_mart","product_master_query","ad_product_mart","product_buyer_mart"].includes(lastTool.name))
     ? makeVisualization(lastTool.name,lastTool.result,lastTool.args,question)
     : null;
 
-  return json({answer,model,backend_version:"V11.2",visualization});
+  return json({
+    answer,
+    model,
+    backend_version:"V11.4",
+    visualization,
+    external_used:webUsed,
+    sources,
+    aliases_resolved:aliasInfo.hits,
+    attachment_count:attachments.length
+  });
 }
 
 function authOK(request){
@@ -736,7 +935,7 @@ export default async (request, context) => {
     return json({
       ok:!!process.env.OPENAI_API_KEY,
       model:process.env.OPENAI_MODEL||"gpt-5.4-mini",
-      backend_version:"V11.2",
+      backend_version:"V11.4",
       data_rows:DATA.length,
       ad_master_rows:adm.length,
       ad_master_registered:adm.filter(x=>x.line_registered).length,
