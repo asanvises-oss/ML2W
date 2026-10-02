@@ -75,3 +75,21 @@ V10.23 HARD SEPARATION FIX
 - mission_summary is blocked unless CURRENT question explicitly mentions Mission / Join Mission.
 - Mission charts are suppressed unless the current question explicitly asks about Mission.
 - Backend version changed to V10.23 for verification.
+
+V10.24 BROWSER-SIDE LINE REGISTRATION FIX
+- LINE-unregistered AD-list questions are now calculated directly in the browser from the embedded dashboard DATA.
+- This route bypasses OpenAI and Netlify tool selection entirely.
+- Store registration is resolved globally: any registered row makes the AD registered.
+- Sales/Qty ranking respects current Distributor/Month/Segment/Pattern/AD filters but ignores the Line filter itself.
+- No visualization is shown for these store-list questions.
+- AI status shows UI V10.24 for verification.
+
+V11 AI DATA MART
+- Rebuilt dashboard AI around authoritative structured data marts instead of keyword patches.
+- AD_MASTER: current sell-out ADs joined to ENTITY_ADS for exact AD Code + LINE registration status.
+- PRODUCT_MASTER: 329 CAI/product-code records.
+- AD_PRODUCT_MART: 9,972 dealer-product relationships.
+- LINE status comes from AD master only, never Mission and never transaction-row inference.
+- Mission remains a separate dataset and is blocked unless the current question explicitly mentions Mission.
+- Entity/list questions return text lists; charts remain for trends, shares and comparisons.
+- UI badge and backend health expose V11.

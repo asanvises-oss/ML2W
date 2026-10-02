@@ -37,18 +37,75 @@ function mergedFilters(base={},o={}){
   for(const [k,v] of Object.entries(o||{})) if(v!==undefined&&v!==null&&v!==""&&v!=="all") f[k]=v;
   return f;
 }
-const STORE_LINE_STATUS=(()=>{
-  const m=new Map();
-  for(const r of DATA){
-    const k=norm(r[0])+"\u0001"+norm(r[1]);
-    if(!m.has(k))m.set(k,false);
-    if(lineFlag(r[4]))m.set(k,true);
+
+let _AD_MASTER_CACHE=null;
+
+function buildADMaster(){
+  if(_AD_MASTER_CACHE)return _AD_MASTER_CACHE;
+
+  const meta=new Map();
+  for(const x of ENTITY_ADS){
+    const key=norm(x.distributor)+"\u0001"+norm(x.ad);
+    if(!meta.has(key)){
+      meta.set(key,{
+        distributor:x.distributor,
+        ad:x.ad,
+        ad_code:(x.ad_code && x.ad_code!=="null") ? String(x.ad_code) : null,
+        line_registered:!!x.line_registered
+      });
+    }else{
+      const m=meta.get(key);
+      if(!m.ad_code && x.ad_code && x.ad_code!=="null")m.ad_code=String(x.ad_code);
+      m.line_registered=m.line_registered||!!x.line_registered;
+    }
   }
-  return m;
-})();
+
+  // Only current sell-out ADs are exposed in the analytical master.
+  const sales=new Map();
+  for(const r of DATA){
+    const key=norm(r[0])+"\u0001"+norm(r[1]);
+    if(!sales.has(key)){
+      sales.set(key,{
+        distributor:r[0], ad:r[1], status:r[2],
+        qty:0, sales:0, months:new Set(), segments:new Map(), patterns:new Map()
+      });
+    }
+    const x=sales.get(key);
+    x.qty+=num(r[7]); x.sales+=num(r[8]);
+    if(num(r[7])>0)x.months.add(Number(r[3]));
+    const seg=r[5]||"Unknown", pat=r[6]||"Unknown";
+    x.segments.set(seg,(x.segments.get(seg)||0)+num(r[7]));
+    x.patterns.set(pat,(x.patterns.get(pat)||0)+num(r[7]));
+  }
+
+  const out=new Map();
+  for(const [key,s] of sales){
+    const m=meta.get(key);
+    out.set(key,{
+      distributor:s.distributor,
+      ad:s.ad,
+      ad_code:m?.ad_code||null,
+      line_registered:m ? !!m.line_registered : false,
+      line_source:m ? "ENTITY_ADS" : "No master match",
+      status:s.status||null,
+      qty:s.qty,
+      sales:s.sales,
+      purchasing_months:s.months.size,
+      top_segment:[...s.segments.entries()].sort((a,b)=>b[1]-a[1])[0]?.[0]||null,
+      top_pattern:[...s.patterns.entries()].sort((a,b)=>b[1]-a[1])[0]?.[0]||null
+    });
+  }
+
+  _AD_MASTER_CACHE=out;
+  return out;
+}
+
+function adMasterRecord(dist,ad){
+  return buildADMaster().get(norm(dist)+"\u0001"+norm(ad))||null;
+}
 
 function storeLineRegistered(r){
-  return STORE_LINE_STATUS.get(norm(r[0])+"\u0001"+norm(r[1]))===true;
+  return adMasterRecord(r[0],r[1])?.line_registered===true;
 }
 
 function filteredRows(baseFilters={},overrides={}){
@@ -88,10 +145,17 @@ function topSegmentPattern(rows){
 }
 
 function adMetaFor(dist,ad){
+  const master=adMasterRecord(dist,ad);
+  if(master)return {
+    distributor:master.distributor,
+    ad:master.ad,
+    ad_code:master.ad_code,
+    line_registered:master.line_registered
+  };
   const nd=norm(dist),na=norm(ad);
   const hits=ENTITY_ADS.filter(x=>norm(x.distributor)===nd && norm(x.ad)===na);
   if(!hits.length)return null;
-  const best=hits.find(x=>x.ad_code)||hits[0];
+  const best=hits.find(x=>x.ad_code&&x.ad_code!=="null")||hits[0];
   return best;
 }
 function adSalesMap(baseFilters={}){
@@ -133,6 +197,137 @@ function rankProductCodes(args){
   const metric=args.metric==="qty"?"qty":"sales"; const limit=Math.min(Math.max(Number(args.limit)||15,1),50); const q=norm(args.query||"");
   return PRODUCT_CODES.filter(x=>!q||norm(x.item).includes(q)||norm(x.pattern).includes(q)||norm(x.cai).includes(q)).sort((a,b)=>b[metric]-a[metric]).slice(0,limit);
 }
+
+function adMasterQuery(args,base){
+  const q=norm(args.query||"");
+  const limit=Math.min(Math.max(Number(args.limit)||20,1),50);
+  let rows=[...buildADMaster().values()];
+
+  const f=args.filters||{};
+  if(f.distributor&&f.distributor!=="all")rows=rows.filter(x=>norm(x.distributor)===norm(f.distributor));
+  if(f.status&&f.status!=="all")rows=rows.filter(x=>norm(x.status)===norm(f.status));
+  if(args.line_status==="registered")rows=rows.filter(x=>x.line_registered);
+  if(args.line_status==="not_registered")rows=rows.filter(x=>!x.line_registered);
+
+  if(q){
+    rows=rows.filter(x=>
+      norm(x.ad).includes(q) ||
+      norm(x.ad_code).includes(q) ||
+      norm(x.distributor).includes(q)
+    );
+  }
+
+  const metric=args.metric==="qty"?"qty":"sales";
+  return rows.sort((a,b)=>b[metric]-a[metric]).slice(0,limit);
+}
+
+function adRankMart(args,base){
+  const limit=Math.min(Math.max(Number(args.limit)||10,1),50);
+  const metric=args.metric==="qty"?"qty":"sales";
+  const f={...(args.filters||{})};
+
+  // Apply transaction-level filters first, but LINE registration from AD master only.
+  delete f.line;
+  let rows=filteredRows(base,f);
+  const by=new Map();
+
+  for(const r of rows){
+    const key=norm(r[0])+"\u0001"+norm(r[1]);
+    if(!by.has(key)){
+      const m=adMasterRecord(r[0],r[1]);
+      by.set(key,{
+        distributor:r[0],
+        ad:r[1],
+        ad_code:m?.ad_code||null,
+        line_registered:m?.line_registered===true,
+        status:r[2]||null,
+        qty:0,
+        sales:0,
+        rows:[]
+      });
+    }
+    const x=by.get(key);
+    x.qty+=num(r[7]); x.sales+=num(r[8]); x.rows.push(r);
+  }
+
+  let out=[...by.values()];
+  if(args.line_status==="registered")out=out.filter(x=>x.line_registered);
+  if(args.line_status==="not_registered")out=out.filter(x=>!x.line_registered);
+
+  if(args.query){
+    const q=norm(args.query);
+    out=out.filter(x=>norm(x.ad).includes(q)||norm(x.ad_code).includes(q)||norm(x.distributor).includes(q));
+  }
+
+  return out
+    .map(x=>{
+      const tsp=topSegmentPattern(x.rows);
+      const {rows,...rest}=x;
+      return {...rest,...tsp};
+    })
+    .sort((a,b)=>b[metric]-a[metric])
+    .slice(0,limit);
+}
+
+function productMasterQuery(args){
+  const q=norm(args.query||"");
+  const metric=args.metric==="qty"?"qty":"sales";
+  const limit=Math.min(Math.max(Number(args.limit)||20,1),50);
+  return PRODUCT_CODES
+    .filter(x=>!q||norm(x.cai).includes(q)||norm(x.item).includes(q)||norm(x.pattern).includes(q))
+    .sort((a,b)=>b[metric]-a[metric])
+    .slice(0,limit);
+}
+
+function adProductMart(args){
+  const aq=norm(args.ad_query||"");
+  const pq=norm(args.product_query||"");
+  const metric=args.metric==="qty"?"qty":"sales";
+  const limit=Math.min(Math.max(Number(args.limit)||20,1),60);
+
+  let rows=AD_PRODUCTS.filter(x=>{
+    const adHit=!aq||norm(x.ad).includes(aq)||norm(x.ad_code).includes(aq);
+    const productHit=!pq||norm(x.cai).includes(pq)||norm(x.item).includes(pq)||norm(x.pattern).includes(pq);
+    return adHit&&productHit;
+  });
+
+  if(args.filters?.distributor&&args.filters.distributor!=="all"){
+    rows=rows.filter(x=>norm(x.distributor)===norm(args.filters.distributor));
+  }
+
+  return rows.sort((a,b)=>b[metric]-a[metric]).slice(0,limit);
+}
+
+function productBuyerMart(args){
+  const q=norm(args.product_query||"");
+  const metric=args.metric==="qty"?"qty":"sales";
+  const limit=Math.min(Math.max(Number(args.limit)||20,1),50);
+  let rows=AD_PRODUCTS.filter(x=>!q||norm(x.cai).includes(q)||norm(x.item).includes(q)||norm(x.pattern).includes(q));
+
+  const by=new Map();
+  for(const x of rows){
+    const key=norm(x.distributor)+"\u0001"+norm(x.ad);
+    if(!by.has(key)){
+      const m=adMasterRecord(x.distributor,x.ad);
+      by.set(key,{
+        distributor:x.distributor,
+        ad:x.ad,
+        ad_code:m?.ad_code||x.ad_code||null,
+        line_registered:m?.line_registered===true,
+        qty:0,
+        sales:0
+      });
+    }
+    const y=by.get(key);
+    y.qty+=num(x.qty); y.sales+=num(x.sales);
+  }
+
+  let out=[...by.values()];
+  if(args.line_status==="registered")out=out.filter(x=>x.line_registered);
+  if(args.line_status==="not_registered")out=out.filter(x=>!x.line_registered);
+  return out.sort((a,b)=>b[metric]-a[metric]).slice(0,limit);
+}
+
 function salesSummary(args,base){
   const rows=filteredRows(base,args.filters||{}); const s=summary(rows);
   const months=[...aggregate(rows,r=>r[3])].map(([m,x])=>({month:Number(m),label:MONTHS[m],qty:x.qty,sales:x.sales})).sort((a,b)=>a.month-b.month);
@@ -175,76 +370,38 @@ function storeDetail(args,base){
   return [...byStore].slice(0,8).map(([k,rs])=>{const [dist,ad]=k.split("\u0001");const s=summary(rs);const meta=adMetaFor(dist,ad);return {distributor:dist,ad,ad_code:meta?.ad_code||null,line_registered:meta?.line_registered??null,...s,monthly:[...aggregate(rs,r=>r[3])].map(([m,x])=>({month:Number(m),label:MONTHS[m],qty:x.qty,sales:x.sales})).sort((a,b)=>a.month-b.month),segments:[...aggregate(rs,r=>r[5])].map(([segment,x])=>({segment,qty:x.qty,sales:x.sales})).sort((a,b)=>b.sales-a.sales),patterns:[...aggregate(rs,r=>r[6])].map(([pattern,x])=>({pattern,qty:x.qty,sales:x.sales})).sort((a,b)=>b.sales-a.sales).slice(0,20)};});
 }
 function registrationSummary(args,base){
-  const f={...(args.filters||{})};
-  f.line="all";
-  const rows=filteredRows(base,f);
+  const rows=adRankMart({
+    filters:args.filters||{},
+    metric:"sales",
+    limit:5000
+  },base);
 
-  const byStore=new Map();
-  for(const r of rows){
-    const k=norm(r[0])+"\u0001"+norm(r[1]);
-    if(!byStore.has(k))byStore.set(k,{distributor:r[0],ad:r[1],qty:0,sales:0,line_registered:storeLineRegistered(r)});
-    const x=byStore.get(k);
-    x.qty+=num(r[7]); x.sales+=num(r[8]);
-  }
-
-  const stores=[...byStore.values()];
-  const registeredStores=stores.filter(x=>x.line_registered);
-  const notRegisteredStores=stores.filter(x=>!x.line_registered);
-
-  const storeSummary=a=>({
+  const reg=rows.filter(x=>x.line_registered);
+  const no=rows.filter(x=>!x.line_registered);
+  const sum=a=>({
     unique_ad:a.length,
-    qty:a.reduce((s,x)=>s+x.qty,0),
-    sales:a.reduce((s,x)=>s+x.sales,0)
+    qty:a.reduce((s,x)=>s+num(x.qty),0),
+    sales:a.reduce((s,x)=>s+num(x.sales),0)
   });
 
   return {
-    store_count:stores.length,
-    registered_store_count:registeredStores.length,
-    not_registered_store_count:notRegisteredStores.length,
-    registered:storeSummary(registeredStores),
-    not_registered:storeSummary(notRegisteredStores),
-    top_not_registered:notRegisteredStores.slice().sort((a,b)=>b.sales-a.sales).slice(0,20),
-    top_registered:registeredStores.slice().sort((a,b)=>b.sales-a.sales).slice(0,20)
+    source:"AD_MASTER + SALES_FACT",
+    registered_store_count:reg.length,
+    not_registered_store_count:no.length,
+    registered:sum(reg),
+    not_registered:sum(no),
+    top_not_registered:no.slice().sort((a,b)=>b.sales-a.sales).slice(0,20),
+    top_registered:reg.slice().sort((a,b)=>b.sales-a.sales).slice(0,20)
   };
 }
 
 function lineUnregisteredStores(args,base){
-  const f={...(args.filters||{})};
-  f.line="all";
-  const rows=filteredRows(base,f);
-
-  const byStore=new Map();
-  for(const r of rows){
-    const k=norm(r[0])+"\u0001"+norm(r[1]);
-    if(!byStore.has(k))byStore.set(k,{
-      distributor:r[0], ad:r[1], qty:0, sales:0,
-      line_registered:storeLineRegistered(r), months:new Set(), patterns:new Map(), segments:new Map()
-    });
-    const x=byStore.get(k);
-    x.qty+=num(r[7]); x.sales+=num(r[8]);
-    if(num(r[7])>0)x.months.add(Number(r[3]));
-    const pat=r[6]||"Unknown", seg=r[5]||"Unknown";
-    x.patterns.set(pat,(x.patterns.get(pat)||0)+num(r[7]));
-    x.segments.set(seg,(x.segments.get(seg)||0)+num(r[7]));
-  }
-
-  const metric=args?.metric==="qty"?"qty":"sales";
-  const limit=Math.min(Math.max(Number(args?.limit)||10,1),30);
-
-  return [...byStore.values()]
-    .filter(x=>!x.line_registered)
-    .sort((a,b)=>b[metric]-a[metric])
-    .slice(0,limit)
-    .map(x=>({
-      distributor:x.distributor,
-      ad:x.ad,
-      ad_code:adMetaFor(x.distributor,x.ad)?.ad_code||null,
-      sales:x.sales,
-      qty:x.qty,
-      purchasing_months:x.months.size,
-      top_pattern:[...x.patterns.entries()].sort((a,b)=>b[1]-a[1])[0]?.[0]||null,
-      top_segment:[...x.segments.entries()].sort((a,b)=>b[1]-a[1])[0]?.[0]||null
-    }));
+  return adRankMart({
+    filters:args.filters||{},
+    line_status:"not_registered",
+    metric:args.metric||"sales",
+    limit:args.limit||10
+  },base);
 }
 function percentileMedian(a){const x=a.filter(Number.isFinite).sort((a,b)=>a-b);if(!x.length)return 0;const m=Math.floor(x.length/2);return x.length%2?x[m]:(x[m-1]+x[m])/2;}
 function sizeTier(q){q=Number(q||0);if(q<500)return null;if(q<1500)return {key:"small",label:"Small",range:"500-1,499"};if(q<5000)return {key:"medium",label:"Medium",range:"1,500-4,999"};return {key:"large",label:"Large",range:"5,000+"};}
@@ -266,6 +423,12 @@ function missionSummary(args){
 
 
 const toolDefs=[
+ {type:"function",name:"ad_master_query",description:"Authoritative AD master lookup. Returns exact Distributor, AD Name, AD Code, LINE registration status, store status and YTD sales/qty. Use for AD Code, dealer identity, LINE registration status, or exact dealer lookup.",parameters:{type:"object",properties:{query:{type:"string"},line_status:{type:"string",enum:["all","registered","not_registered"]},metric:{type:"string",enum:["sales","qty"]},limit:{type:"integer"},filters:{type:"object",additionalProperties:true}},required:["metric","limit"],additionalProperties:false}},
+ {type:"function",name:"ad_rank_mart",description:"Authoritative AD ranking from the AI data mart. Use for Top/Bottom AD questions, including LINE registered/not registered rankings, distributor/segment/pattern/month filters. Returns exact AD name, AD Code, Distributor, LINE status, Sales and Qty.",parameters:{type:"object",properties:{query:{type:"string"},line_status:{type:"string",enum:["all","registered","not_registered"]},metric:{type:"string",enum:["sales","qty"]},limit:{type:"integer"},filters:{type:"object",additionalProperties:true}},required:["metric","limit"],additionalProperties:false}},
+ {type:"function",name:"product_master_query",description:"Authoritative product/CAI lookup. Use for CAI, item code, SKU description, tyre pattern, product-code ranking or exact product identification.",parameters:{type:"object",properties:{query:{type:"string"},metric:{type:"string",enum:["sales","qty"]},limit:{type:"integer"}},required:["metric","limit"],additionalProperties:false}},
+ {type:"function",name:"ad_product_mart",description:"Authoritative AD x product detail. Use when asking what products/CAIs a dealer bought, or a dealer's sales/qty by product.",parameters:{type:"object",properties:{ad_query:{type:"string"},product_query:{type:"string"},metric:{type:"string",enum:["sales","qty"]},limit:{type:"integer"},filters:{type:"object",additionalProperties:true}},required:["ad_query","metric","limit"],additionalProperties:false}},
+ {type:"function",name:"product_buyer_mart",description:"Authoritative product buyer ranking. Use when asking which ADs bought a CAI/item/pattern the most. Can filter LINE registration status.",parameters:{type:"object",properties:{product_query:{type:"string"},line_status:{type:"string",enum:["all","registered","not_registered"]},metric:{type:"string",enum:["sales","qty"]},limit:{type:"integer"}},required:["product_query","metric","limit"],additionalProperties:false}},
+
  {type:"function",name:"sales_summary",description:"Get exact sales, quantity, AD count, monthly, distributor and segment summary under filters.",parameters:{type:"object",properties:{filters:{type:"object",additionalProperties:true}},additionalProperties:false}},
  {type:"function",name:"rank_ads",description:"Rank AD stores by sales value or tyre quantity under filters.",parameters:{type:"object",properties:{filters:{type:"object",additionalProperties:true},metric:{type:"string",enum:["sales","qty"]},limit:{type:"integer"}},required:["metric","limit"],additionalProperties:false}},
  {type:"function",name:"ad_lookup",description:"Find exact AD/dealer records by AD name, AD Code, or Distributor. Returns AD Code, store name, Distributor, Line registration, YTD sales and quantity. Use whenever the user asks for AD Code, dealer code, store identity, or searches a store by code/name.",parameters:{type:"object",properties:{query:{type:"string"},filters:{type:"object",additionalProperties:true},limit:{type:"integer"}},required:["query","limit"],additionalProperties:false}},
@@ -283,11 +446,12 @@ const toolDefs=[
  {type:"function",name:"cai_opportunities",description:"Get exact CAI pair opportunities using dashboard size tiers: Small 500-1499, Medium 1500-4999, Large 5000+, cross-distributor peer median, excluding AD below 500 tyres.",parameters:{type:"object",properties:{filters:{type:"object",additionalProperties:true},limit:{type:"integer"}},required:["limit"],additionalProperties:false}},
  {type:"function",name:"mission_summary",description:"MISSION registration only (Join Mission / Mission campaign). Use ONLY when the user explicitly asks about Mission or Join Mission. Mission registration is different from LINE OA / Line Register.",parameters:{type:"object",properties:{filters:{type:"object",additionalProperties:true}},additionalProperties:false}}
 ];
-function runTool(name,args,base){switch(name){case"sales_summary":return salesSummary(args,base);case"rank_ads":return rankAds(args,base);case"ad_lookup":return adLookup(args,base);case"product_lookup":return productLookup(args);case"ad_product_detail":return adProductDetail(args);case"product_buyers":return productBuyers(args);case"rank_product_codes":return rankProductCodes(args);case"rank_patterns":return rankPatterns(args,base);case"monthly_trend":return monthlyTrend(args,base);case"compare_months":return compareMonths(args,base);case"big_retail_summary":return bigRetail(args,base);case"store_detail":return storeDetail(args,base);case"registration_summary":return registrationSummary(args,base);case"line_unregistered_stores":return lineUnregisteredStores(args,base);case"cai_opportunities":return caiOpportunities(args,base);case"mission_summary":return missionSummary(args);default:return {error:"Unknown tool"};}}
+function runTool(name,args,base){switch(name){case"ad_master_query":return adMasterQuery(args,base);case"ad_rank_mart":return adRankMart(args,base);case"product_master_query":return productMasterQuery(args);case"ad_product_mart":return adProductMart(args);case"product_buyer_mart":return productBuyerMart(args);case"sales_summary":return salesSummary(args,base);case"rank_ads":return rankAds(args,base);case"ad_lookup":return adLookup(args,base);case"product_lookup":return productLookup(args);case"ad_product_detail":return adProductDetail(args);case"product_buyers":return productBuyers(args);case"rank_product_codes":return rankProductCodes(args);case"rank_patterns":return rankPatterns(args,base);case"monthly_trend":return monthlyTrend(args,base);case"compare_months":return compareMonths(args,base);case"big_retail_summary":return bigRetail(args,base);case"store_detail":return storeDetail(args,base);case"registration_summary":return registrationSummary(args,base);case"line_unregistered_stores":return lineUnregisteredStores(args,base);case"cai_opportunities":return caiOpportunities(args,base);case"mission_summary":return missionSummary(args);default:return {error:"Unknown tool"};}}
 
 
 
 function makeVisualization(toolName,result,args,question){
+  if(["ad_master_query","ad_rank_mart","product_master_query","ad_product_mart","product_buyer_mart"].includes(toolName))return null;
   const q=norm(question||"");
   if(toolName==="mission_summary" && !hasMissionIntent(question))return null;
   const wantsQty=/qty|quantity|จำนวน|เส้น/.test(q);
@@ -426,18 +590,39 @@ function makeVisualization(toolName,result,args,question){
   if(toolName==="product_buyers" && Array.isArray(result)){
     if(!asksVisual)return null;
     const metric=args?.metric==="qty"?"qty":"sales";
-    return {type:"bar",title:`Top Product Buyers by ${{metric==="qty"?"Quantity":"Sales"}}`,format:metric==="qty"?"number":"currency",items:result.slice(0,10).map(x=>({label:`${{x.ad}} · ${{x.distributor}}`,value:Number(x[metric]||0)}))};
+    return {type:"bar",title:`Top Product Buyers by ${{metric==="qty"?"Quantity":"Sales"}}`,format:metric==="qty"?"number":"currency",items:result.slice(0,10).map(x=>({label:`${x.ad} · ${x.distributor}`,value:Number(x[metric]||0)}))};
   }
   if(toolName==="rank_product_codes" && Array.isArray(result)){
     if(!asksVisual)return null;
     const metric=args?.metric==="qty"?"qty":"sales";
-    return {type:"bar",title:`Top CAI by ${{metric==="qty"?"Quantity":"Sales"}}`,format:metric==="qty"?"number":"currency",items:result.slice(0,10).map(x=>({label:`${{x.cai}} · ${{x.pattern||x.item}}`,value:Number(x[metric]||0)}))};
+    return {type:"bar",title:`Top CAI by ${{metric==="qty"?"Quantity":"Sales"}}`,format:metric==="qty"?"number":"currency",items:result.slice(0,10).map(x=>({label:`${x.cai} · ${x.pattern||x.item}`,value:Number(x[metric]||0)}))};
   }
 
   return null;
 }
 
-const SYSTEM=`You are the AI Sales Analyst inside Michelin Thailand's two-wheel sell-out dashboard. Data period is Jan-Aug 2026 unless a tool says otherwise. Answer in Thai when the user asks in Thai, otherwise in the user's language. Be concise and business-useful. Use calculation tools for every numeric claim; never invent numbers. Current dashboard filters are the default scope unless the user explicitly overrides them. Distinguish Sales Value (THB) from Quantity (tyres). Month mapping: 1 Jan, 2 Feb, 3 Mar, 4 Apr, 5 May, 6 Jun, 7 Jul, 8 Aug. Use compare_months for MoM, store_detail for a named store, big_retail_summary for Big Retail, and cai_opportunities for CAI/Opportunity. Mention Jan-Aug limitation when relevant. Do not claim causation from sales data alone. Keep the answer short because the dashboard may render a chart automatically; do not describe how to draw a chart and do not output chart JSON. Registration terminology is strict: when the user says 'Line register', 'LINE register', 'LINE OA', 'ลงทะเบียน Line', or asks which stores have not registered Line, ALWAYS call registration_summary. When the user says 'Mission' or 'Join Mission', use mission_summary. NEVER infer that Mission not-registered means Line not-registered, and never label Mission registration as Line registration. For a request such as 'ร้านไหนยังไม่ได้ลงทะเบียน Line แล้วมียอดซื้อเยอะ', call registration_summary and use top_not_registered. If the user asks for actual store names, asks 'ร้านไหน', 'ชื่อร้าน', 'Top stores', or wants Distributor + store, call line_unregistered_stores for LINE registration questions and list the returned store names directly. Do not say the tool cannot provide names if line_unregistered_stores is available. For list answers, prefer a compact numbered list with Distributor, store name, Sales and Qty. Entity-level lookup rules: if the user asks for a specific AD/dealer/store, AD Code, CAI/product code, Item/SKU, or asks which stores bought a product, use the dedicated lookup tools rather than summary tools. Use ad_lookup for AD identity/code; product_lookup for CAI/Item/Pattern code lookup; ad_product_detail for products bought by a named/code AD; product_buyers for buyers of a product/code; rank_product_codes for top CAIs. When listing ADs, include Distributor + AD name + AD Code when available. When listing products, include CAI + Item/description + Pattern when available. Never say the dashboard cannot provide AD Code or product code if these tools return it. For exact lists, keep text/table-like lists concise and do not invent missing codes. LINE registration is STORE-LEVEL: if a dealer is registered on any row, treat the dealer as registered for all analyses. Never use rank_ads to answer a LINE-unregistered store-list question; use line_unregistered_stores. Do not return an overall Top AD ranking when the user asked for LINE-unregistered stores. CRITICAL: Mission and LINE registration are separate datasets. Do not call mission_summary unless the CURRENT user message explicitly mentions Mission or Join Mission. If the user says LINE Register, LINE OA, or asks which dealers are not registered in LINE, only use LINE registration tools. Never use Mission top_not_registered as a fallback for a LINE question.`;
+const SYSTEM=`You are the AI Sales Analyst inside Michelin Thailand's two-wheel sell-out dashboard. Data period is Jan-Aug 2026 unless a tool says otherwise.
+
+DATA ARCHITECTURE:
+1) AD master: ad_master_query / ad_rank_mart. This is the authoritative source for AD Name, AD Code, Distributor and LINE registration status.
+2) Product master: product_master_query. This is the authoritative source for CAI / item / SKU / pattern identity.
+3) AD x Product mart: ad_product_mart / product_buyer_mart. This is the authoritative source for dealer-product relationships.
+4) Sales fact tools: sales_summary, monthly_trend, compare_months, big_retail_summary, etc. Use these for aggregated sales analysis.
+5) Mission is a separate program from LINE registration. Use mission_summary ONLY when the CURRENT user message explicitly says Mission / Join Mission.
+
+RULES:
+- Use calculation/data-mart tools for every numeric or entity claim. Never invent values, dealer names, AD Codes or CAIs.
+- LINE Register / LINE OA questions MUST use AD master/data-mart tools. Never infer LINE status from Mission or from transaction-row flags.
+- If the user asks "ร้านไหน", "ชื่อร้าน", Top AD, AD Code, or registered/not registered dealer lists, use ad_rank_mart or ad_master_query.
+- If the user asks for CAI / SKU / item code / product code, use product_master_query.
+- If the user asks what a dealer bought, use ad_product_mart.
+- If the user asks who bought a product most, use product_buyer_mart.
+- Current dashboard filters are the default scope unless the user explicitly overrides them.
+- Distinguish Sales Value (THB) from Quantity (tyres).
+- Month mapping: 1 Jan, 2 Feb, 3 Mar, 4 Apr, 5 May, 6 Jun, 7 Jul, 8 Aug.
+- Keep answers concise and business-useful. For ranked lists, show Distributor · AD Name · AD Code when available · Sales/Qty.
+- Do not claim causation from sales data alone.
+- Do not output chart JSON; the dashboard decides whether a visualization is useful.`;
 
 
 
@@ -479,40 +664,7 @@ async function handleAsk(request,env){
 
   const baseFilters=body?.filters||{};
   const history=Array.isArray(body?.history)?body.history.slice(-6):[];
-
-  // Hard route for LINE-registration store questions.
-  // Use current question + recent conversation context so short follow-ups like "ลองใหม่" still stay in LINE context.
-  const recentContext=[question,...history.slice(-6).map(x=>String(x?.content||""))].join(" ");
-  const isLineContext=hasLineIntent(recentContext);
-  const lineNotRegistered=asksUnregistered(recentContext);
-  const wantsStoreNames=asksStoreNames(recentContext);
-
-  if(isLineContext && lineNotRegistered && wantsStoreNames){
-    const nMatch=recentContext.match(/(?:top|list|ขอ|เอา)?\s*(\d{1,2})/i);
-    const limit=Math.min(Math.max(Number(nMatch?.[1]||10),1),30);
-    const metric=/qty|quantity|จำนวน|เส้น/.test(norm(recentContext))?"qty":"sales";
-    const rows=lineUnregisteredStores({filters:baseFilters,metric,limit},baseFilters);
-
-    const th=/[\u0E00-\u0E7F]/.test(recentContext);
-    const fmtSales=n=>"฿"+Math.round(Number(n||0)).toLocaleString("en-US");
-    const lines=rows.map((x,i)=>{
-      const code=x.ad_code?` · AD Code ${x.ad_code}`:"";
-      return `${i+1}. **${x.ad}** · ${x.distributor}${code} — ${fmtSales(x.sales)} · ${Math.round(x.qty).toLocaleString("en-US")} เส้น`;
-    });
-
-    const answer=th
-      ? `Top ${rows.length} AD ที่ **ยังไม่ได้ลงทะเบียน LINE Register** ตามสถานะระดับร้าน และเรียงตาม${metric==="qty"?"จำนวนเส้น":"Sales Value"}:\n\n${lines.join("\n")}\n\nข้อมูลช่วง Jan–Aug 2026`
-      : `Top ${rows.length} LINE-unregistered ADs ranked by ${metric==="qty"?"quantity":"sales value"}:\n\n${lines.join("\n")}\n\nData period: Jan–Aug 2026`;
-
-    return json({
-      answer,
-      model:"deterministic-line-registration",
-      backend_version:"V10.23",
-      visualization:null
-    });
-  }
-
-  const hist=history
+const hist=history
     .filter(x=>x&&["user","assistant"].includes(x.role)&&typeof x.content==="string")
     .slice(0,-1)
     .map(x=>({role:x.role,content:x.content.slice(0,2500)}));
@@ -533,12 +685,10 @@ async function handleAsk(request,env){
       let args={};
       try{args=JSON.parse(call.arguments||"{}");}catch{}
       let result;
-      const contextText=[question,...history.slice(-6).map(x=>String(x?.content||""))].join(" ");
-      if(call.name==="mission_summary" && !hasMissionIntent(question)){
-        // Mission is a separate program. Never let the model use it for LINE registration or generic registration questions.
-        result={error:"mission_summary is only allowed when the CURRENT question explicitly mentions Mission / Join Mission."};
-      }else if(call.name==="registration_summary" && hasMissionIntent(question) && !hasLineIntent(question)){
-        result={error:"registration_summary is for LINE OA / Line Register only; use mission_summary for Mission questions."};
+      const currentQ=norm(question);
+      const missionExplicit=/\bmission\b|join\s*mission|มิชชั่น|มิสชั่น/.test(currentQ);
+      if(call.name==="mission_summary" && !missionExplicit){
+        result={error:"Mission data is only allowed when the CURRENT question explicitly mentions Mission / Join Mission."};
       }else{
         result=runTool(call.name,args,baseFilters);
       }
@@ -557,7 +707,7 @@ async function handleAsk(request,env){
     ? makeVisualization(lastTool.name,lastTool.result,lastTool.args,question)
     : null;
 
-  return json({answer,model,visualization});
+  return json({answer,model,backend_version:"V11",visualization});
 }
 
 function authOK(request){
@@ -575,23 +725,18 @@ export default async (request, context) => {
   const action=url.searchParams.get("action")||"";
 
   if(request.method==="GET" && action==="health"){
-    const lineValues=[...new Set(DATA.map(r=>String(r[4]??"").trim()))].slice(0,20);
-    const lineStoreMap=new Map();
-    for(const r of DATA){
-      const k=norm(r[0])+"\u0001"+norm(r[1]);
-      if(!lineStoreMap.has(k))lineStoreMap.set(k,false);
-      if(lineFlag(r[4]))lineStoreMap.set(k,true);
-    }
-    const lineRegisteredStores=[...lineStoreMap.values()].filter(Boolean).length;
+    const adm=[...buildADMaster().values()];
     return json({
       ok:!!process.env.OPENAI_API_KEY,
       model:process.env.OPENAI_MODEL||"gpt-5.4-mini",
-      backend_version:"V10.23",
+      backend_version:"V11",
       data_rows:DATA.length,
-      cai_groups:CAI_PAIR_GROUPS.length,
-      line_register_raw_values:lineValues,
-      line_registered_stores:lineRegisteredStores,
-      line_not_registered_stores:lineStoreMap.size-lineRegisteredStores
+      ad_master_rows:adm.length,
+      ad_master_registered:adm.filter(x=>x.line_registered).length,
+      ad_master_not_registered:adm.filter(x=>!x.line_registered).length,
+      product_master_rows:PRODUCT_CODES.length,
+      ad_product_rows:AD_PRODUCTS.length,
+      cai_groups:CAI_PAIR_GROUPS.length
     });
   }
 
