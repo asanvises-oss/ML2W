@@ -13,6 +13,24 @@ const lineFlag=v=>{
   if(["0","no","n","false","not registered","not register","unregistered","ยังไม่ลงทะเบียน","ไม่ลงทะเบียน"].includes(s))return false;
   return false;
 };
+
+function hasLineIntent(text){
+  const q=norm(text||"");
+  return /line\s*register|line\s*registration|line\s*oa|line\s*reg|ลงทะเบียน\s*line|ลงทะเบียนไลน์|ไลน์\s*register|ไลน์\s*รีจิส/.test(q);
+}
+function hasMissionIntent(text){
+  const q=norm(text||"");
+  return /\bmission\b|join\s*mission|มิชชั่น|มิสชั่น/.test(q);
+}
+function asksUnregistered(text){
+  const q=norm(text||"");
+  return /ยังไม่ลงทะเบียน|ไม่ได้ลงทะเบียน|ไม่ลงทะเบียน|not\s*registered|unregistered/.test(q);
+}
+function asksStoreNames(text){
+  const q=norm(text||"");
+  return /ร้านไหน|รายชื่อ|ชื่อร้าน|ad\s*ไหน|dealer|top\s*\d*|list\s*\d*|ยอดซื้อสูง|ยอดสูง|มากสุด|สูงสุด/.test(q);
+}
+
 const num=x=>Number(x||0);
 function mergedFilters(base={},o={}){
   const f={...base};
@@ -271,6 +289,7 @@ function runTool(name,args,base){switch(name){case"sales_summary":return salesSu
 
 function makeVisualization(toolName,result,args,question){
   const q=norm(question||"");
+  if(toolName==="mission_summary" && !hasMissionIntent(question))return null;
   const wantsQty=/qty|quantity|จำนวน|เส้น/.test(q);
   const wantsSales=/sales|value|ยอดขาย|บาท|มูลค่า/.test(q);
   const format=wantsQty&&!wantsSales?"number":"currency";
@@ -418,7 +437,7 @@ function makeVisualization(toolName,result,args,question){
   return null;
 }
 
-const SYSTEM=`You are the AI Sales Analyst inside Michelin Thailand's two-wheel sell-out dashboard. Data period is Jan-Aug 2026 unless a tool says otherwise. Answer in Thai when the user asks in Thai, otherwise in the user's language. Be concise and business-useful. Use calculation tools for every numeric claim; never invent numbers. Current dashboard filters are the default scope unless the user explicitly overrides them. Distinguish Sales Value (THB) from Quantity (tyres). Month mapping: 1 Jan, 2 Feb, 3 Mar, 4 Apr, 5 May, 6 Jun, 7 Jul, 8 Aug. Use compare_months for MoM, store_detail for a named store, big_retail_summary for Big Retail, and cai_opportunities for CAI/Opportunity. Mention Jan-Aug limitation when relevant. Do not claim causation from sales data alone. Keep the answer short because the dashboard may render a chart automatically; do not describe how to draw a chart and do not output chart JSON. Registration terminology is strict: when the user says 'Line register', 'LINE register', 'LINE OA', 'ลงทะเบียน Line', or asks which stores have not registered Line, ALWAYS call registration_summary. When the user says 'Mission' or 'Join Mission', use mission_summary. NEVER infer that Mission not-registered means Line not-registered, and never label Mission registration as Line registration. For a request such as 'ร้านไหนยังไม่ได้ลงทะเบียน Line แล้วมียอดซื้อเยอะ', call registration_summary and use top_not_registered. If the user asks for actual store names, asks 'ร้านไหน', 'ชื่อร้าน', 'Top stores', or wants Distributor + store, call line_unregistered_stores for LINE registration questions and list the returned store names directly. Do not say the tool cannot provide names if line_unregistered_stores is available. For list answers, prefer a compact numbered list with Distributor, store name, Sales and Qty. Entity-level lookup rules: if the user asks for a specific AD/dealer/store, AD Code, CAI/product code, Item/SKU, or asks which stores bought a product, use the dedicated lookup tools rather than summary tools. Use ad_lookup for AD identity/code; product_lookup for CAI/Item/Pattern code lookup; ad_product_detail for products bought by a named/code AD; product_buyers for buyers of a product/code; rank_product_codes for top CAIs. When listing ADs, include Distributor + AD name + AD Code when available. When listing products, include CAI + Item/description + Pattern when available. Never say the dashboard cannot provide AD Code or product code if these tools return it. For exact lists, keep text/table-like lists concise and do not invent missing codes. LINE registration is STORE-LEVEL: if a dealer is registered on any row, treat the dealer as registered for all analyses. Never use rank_ads to answer a LINE-unregistered store-list question; use line_unregistered_stores. Do not return an overall Top AD ranking when the user asked for LINE-unregistered stores.`;
+const SYSTEM=`You are the AI Sales Analyst inside Michelin Thailand's two-wheel sell-out dashboard. Data period is Jan-Aug 2026 unless a tool says otherwise. Answer in Thai when the user asks in Thai, otherwise in the user's language. Be concise and business-useful. Use calculation tools for every numeric claim; never invent numbers. Current dashboard filters are the default scope unless the user explicitly overrides them. Distinguish Sales Value (THB) from Quantity (tyres). Month mapping: 1 Jan, 2 Feb, 3 Mar, 4 Apr, 5 May, 6 Jun, 7 Jul, 8 Aug. Use compare_months for MoM, store_detail for a named store, big_retail_summary for Big Retail, and cai_opportunities for CAI/Opportunity. Mention Jan-Aug limitation when relevant. Do not claim causation from sales data alone. Keep the answer short because the dashboard may render a chart automatically; do not describe how to draw a chart and do not output chart JSON. Registration terminology is strict: when the user says 'Line register', 'LINE register', 'LINE OA', 'ลงทะเบียน Line', or asks which stores have not registered Line, ALWAYS call registration_summary. When the user says 'Mission' or 'Join Mission', use mission_summary. NEVER infer that Mission not-registered means Line not-registered, and never label Mission registration as Line registration. For a request such as 'ร้านไหนยังไม่ได้ลงทะเบียน Line แล้วมียอดซื้อเยอะ', call registration_summary and use top_not_registered. If the user asks for actual store names, asks 'ร้านไหน', 'ชื่อร้าน', 'Top stores', or wants Distributor + store, call line_unregistered_stores for LINE registration questions and list the returned store names directly. Do not say the tool cannot provide names if line_unregistered_stores is available. For list answers, prefer a compact numbered list with Distributor, store name, Sales and Qty. Entity-level lookup rules: if the user asks for a specific AD/dealer/store, AD Code, CAI/product code, Item/SKU, or asks which stores bought a product, use the dedicated lookup tools rather than summary tools. Use ad_lookup for AD identity/code; product_lookup for CAI/Item/Pattern code lookup; ad_product_detail for products bought by a named/code AD; product_buyers for buyers of a product/code; rank_product_codes for top CAIs. When listing ADs, include Distributor + AD name + AD Code when available. When listing products, include CAI + Item/description + Pattern when available. Never say the dashboard cannot provide AD Code or product code if these tools return it. For exact lists, keep text/table-like lists concise and do not invent missing codes. LINE registration is STORE-LEVEL: if a dealer is registered on any row, treat the dealer as registered for all analyses. Never use rank_ads to answer a LINE-unregistered store-list question; use line_unregistered_stores. Do not return an overall Top AD ranking when the user asked for LINE-unregistered stores. CRITICAL: Mission and LINE registration are separate datasets. Do not call mission_summary unless the CURRENT user message explicitly mentions Mission or Join Mission. If the user says LINE Register, LINE OA, or asks which dealers are not registered in LINE, only use LINE registration tools. Never use Mission top_not_registered as a fallback for a LINE question.`;
 
 
 
@@ -461,21 +480,20 @@ async function handleAsk(request,env){
   const baseFilters=body?.filters||{};
   const history=Array.isArray(body?.history)?body.history.slice(-6):[];
 
-  // Deterministic route for LINE-registration dealer lists.
-  // This avoids model tool-selection mistakes such as returning the overall Top AD ranking.
-  const recentContext=[question,...history.slice(-4).map(x=>String(x?.content||""))].join(" ");
-  const qc=norm(recentContext);
-  const isLineContext=/line\s*register|line\s*registration|line\s*oa|ลงทะเบียน\s*line|ไลน์\s*รีจิส|ไลน์\s*register/.test(qc);
-  const asksNotRegistered=/ยังไม่ลงทะเบียน|ไม่ได้ลงทะเบียน|ไม่ลงทะเบียน|not\s*registered|unregistered/.test(qc);
-  const asksStoreList=/ร้านไหน|รายชื่อ|ชื่อร้าน|ad\s*ไหน|dealer|top\s*\d*|ยอดซื้อสูง|ยอดสูง|มากสุด|สูงสุด/.test(qc);
+  // Hard route for LINE-registration store questions.
+  // Use current question + recent conversation context so short follow-ups like "ลองใหม่" still stay in LINE context.
+  const recentContext=[question,...history.slice(-6).map(x=>String(x?.content||""))].join(" ");
+  const isLineContext=hasLineIntent(recentContext);
+  const lineNotRegistered=asksUnregistered(recentContext);
+  const wantsStoreNames=asksStoreNames(recentContext);
 
-  if(isLineContext && asksNotRegistered && asksStoreList){
-    const nMatch=question.match(/(?:top|list|ขอ|เอา)?\s*(\d{1,2})/i);
+  if(isLineContext && lineNotRegistered && wantsStoreNames){
+    const nMatch=recentContext.match(/(?:top|list|ขอ|เอา)?\s*(\d{1,2})/i);
     const limit=Math.min(Math.max(Number(nMatch?.[1]||10),1),30);
-    const metric=/qty|quantity|จำนวน|เส้น/.test(norm(question))?"qty":"sales";
+    const metric=/qty|quantity|จำนวน|เส้น/.test(norm(recentContext))?"qty":"sales";
     const rows=lineUnregisteredStores({filters:baseFilters,metric,limit},baseFilters);
 
-    const th=/[\u0E00-\u0E7F]/.test(question);
+    const th=/[\u0E00-\u0E7F]/.test(recentContext);
     const fmtSales=n=>"฿"+Math.round(Number(n||0)).toLocaleString("en-US");
     const lines=rows.map((x,i)=>{
       const code=x.ad_code?` · AD Code ${x.ad_code}`:"";
@@ -486,8 +504,14 @@ async function handleAsk(request,env){
       ? `Top ${rows.length} AD ที่ **ยังไม่ได้ลงทะเบียน LINE Register** ตามสถานะระดับร้าน และเรียงตาม${metric==="qty"?"จำนวนเส้น":"Sales Value"}:\n\n${lines.join("\n")}\n\nข้อมูลช่วง Jan–Aug 2026`
       : `Top ${rows.length} LINE-unregistered ADs ranked by ${metric==="qty"?"quantity":"sales value"}:\n\n${lines.join("\n")}\n\nData period: Jan–Aug 2026`;
 
-    return json({answer,model:"deterministic-line-registration",visualization:null});
+    return json({
+      answer,
+      model:"deterministic-line-registration",
+      backend_version:"V10.23",
+      visualization:null
+    });
   }
+
   const hist=history
     .filter(x=>x&&["user","assistant"].includes(x.role)&&typeof x.content==="string")
     .slice(0,-1)
@@ -508,7 +532,16 @@ async function handleAsk(request,env){
     for(const call of calls){
       let args={};
       try{args=JSON.parse(call.arguments||"{}");}catch{}
-      const result=runTool(call.name,args,baseFilters);
+      let result;
+      const contextText=[question,...history.slice(-6).map(x=>String(x?.content||""))].join(" ");
+      if(call.name==="mission_summary" && !hasMissionIntent(question)){
+        // Mission is a separate program. Never let the model use it for LINE registration or generic registration questions.
+        result={error:"mission_summary is only allowed when the CURRENT question explicitly mentions Mission / Join Mission."};
+      }else if(call.name==="registration_summary" && hasMissionIntent(question) && !hasLineIntent(question)){
+        result={error:"registration_summary is for LINE OA / Line Register only; use mission_summary for Mission questions."};
+      }else{
+        result=runTool(call.name,args,baseFilters);
+      }
       lastTool={name:call.name,args,result};
       input.push({type:"function_call_output",call_id:call.call_id,output:JSON.stringify(result)});
     }
@@ -553,7 +586,7 @@ export default async (request, context) => {
     return json({
       ok:!!process.env.OPENAI_API_KEY,
       model:process.env.OPENAI_MODEL||"gpt-5.4-mini",
-      backend_version:"V10.22",
+      backend_version:"V10.23",
       data_rows:DATA.length,
       cai_groups:CAI_PAIR_GROUPS.length,
       line_register_raw_values:lineValues,

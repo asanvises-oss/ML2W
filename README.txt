@@ -68,3 +68,10 @@ V10.22 YES/NO LINE REGISTER FIX
 - Store-level status: any Yes row makes the whole AD registered.
 - Health response shows backend_version, raw Line Register values, and store counts.
 - AI status badge shows V10.22 when the new backend is live.
+
+V10.23 HARD SEPARATION FIX
+- Hard-routes LINE-unregistered dealer-list questions before OpenAI.
+- Uses recent context so short follow-ups remain in LINE registration context.
+- mission_summary is blocked unless CURRENT question explicitly mentions Mission / Join Mission.
+- Mission charts are suppressed unless the current question explicitly asks about Mission.
+- Backend version changed to V10.23 for verification.
