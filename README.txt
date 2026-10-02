@@ -54,3 +54,11 @@ V10.20 ENTITY-LEVEL AI LOOKUP
 - Added top CAI ranking tool.
 - Lookup/detail/code questions stay text-first; charts appear only when ranking/comparison/trend/share visualization is useful or requested.
 - Enriched lookup metadata was generated from Sell_Out_YTD27R2_ADCode_LineRegister_Checked.xlsx.
+
+V10.21 LINE REGISTRATION RELIABILITY FIX
+- LINE registration is now resolved at STORE/AD level across all calculation tools.
+- If any row for an AD is registered, that AD is treated as registered everywhere.
+- Added deterministic routing for LINE-unregistered store-list/top questions.
+- Those questions bypass AI tool selection and are generated from the authoritative store-level list.
+- This prevents overall Top AD rankings (e.g. registered high-sales stores) from being mislabeled as unregistered.
+- No chart is shown for the deterministic store-list answer.

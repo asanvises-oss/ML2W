@@ -13,12 +13,31 @@ function mergedFilters(base={},o={}){
   for(const [k,v] of Object.entries(o||{})) if(v!==undefined&&v!==null&&v!==""&&v!=="all") f[k]=v;
   return f;
 }
+const STORE_LINE_STATUS=(()=>{
+  const m=new Map();
+  for(const r of DATA){
+    const k=norm(r[0])+"\u0001"+norm(r[1]);
+    if(!m.has(k))m.set(k,false);
+    if(Number(r[4])===1)m.set(k,true);
+  }
+  return m;
+})();
+
+function storeLineRegistered(r){
+  return STORE_LINE_STATUS.get(norm(r[0])+"\u0001"+norm(r[1]))===true;
+}
+
 function filteredRows(baseFilters={},overrides={}){
   const f=mergedFilters(baseFilters,overrides);
   return DATA.filter(r=>{
     if(f.distributor && f.distributor!=="all" && norm(r[0])!==norm(f.distributor))return false;
     if(f.month && f.month!=="all" && Number(r[3])!==Number(f.month))return false;
-    if(f.line!==undefined && f.line!=="all" && String(Number(r[4]))!==String(Number(f.line)))return false;
+    // LINE registration is a dealer/store attribute, not a row attribute.
+    // If any row for a dealer is registered, the whole dealer is treated as registered.
+    if(f.line!==undefined && f.line!=="all"){
+      const want=Number(f.line)===1;
+      if(storeLineRegistered(r)!==want)return false;
+    }
     if(f.segment && f.segment!=="all" && norm(r[5])!==norm(f.segment))return false;
     if(f.pattern && f.pattern!=="all" && norm(r[6])!==norm(f.pattern))return false;
     if(f.status && f.status!=="all" && norm(r[2])!==norm(f.status))return false;
@@ -135,28 +154,33 @@ function registrationSummary(args,base){
   const f={...(args.filters||{})};
   f.line="all";
   const rows=filteredRows(base,f);
-  const yes=rows.filter(r=>Number(r[4])===1), no=rows.filter(r=>Number(r[4])!==1);
 
   const byStore=new Map();
   for(const r of rows){
-    const k=r[0]+"\u0001"+r[1];
-    if(!byStore.has(k))byStore.set(k,{distributor:r[0],ad:r[1],qty:0,sales:0,line_registered:false});
+    const k=norm(r[0])+"\u0001"+norm(r[1]);
+    if(!byStore.has(k))byStore.set(k,{distributor:r[0],ad:r[1],qty:0,sales:0,line_registered:storeLineRegistered(r)});
     const x=byStore.get(k);
     x.qty+=num(r[7]); x.sales+=num(r[8]);
-    if(Number(r[4])===1)x.line_registered=true;
   }
+
   const stores=[...byStore.values()];
   const registeredStores=stores.filter(x=>x.line_registered);
   const notRegisteredStores=stores.filter(x=>!x.line_registered);
+
+  const storeSummary=a=>({
+    unique_ad:a.length,
+    qty:a.reduce((s,x)=>s+x.qty,0),
+    sales:a.reduce((s,x)=>s+x.sales,0)
+  });
 
   return {
     store_count:stores.length,
     registered_store_count:registeredStores.length,
     not_registered_store_count:notRegisteredStores.length,
-    registered:summary(yes),
-    not_registered:summary(no),
-    top_not_registered:notRegisteredStores.sort((a,b)=>b.sales-a.sales).slice(0,20),
-    top_registered:registeredStores.sort((a,b)=>b.sales-a.sales).slice(0,20)
+    registered:storeSummary(registeredStores),
+    not_registered:storeSummary(notRegisteredStores),
+    top_not_registered:notRegisteredStores.slice().sort((a,b)=>b.sales-a.sales).slice(0,20),
+    top_registered:registeredStores.slice().sort((a,b)=>b.sales-a.sales).slice(0,20)
   };
 }
 
@@ -167,14 +191,13 @@ function lineUnregisteredStores(args,base){
 
   const byStore=new Map();
   for(const r of rows){
-    const k=r[0]+"\u0001"+r[1];
+    const k=norm(r[0])+"\u0001"+norm(r[1]);
     if(!byStore.has(k))byStore.set(k,{
       distributor:r[0], ad:r[1], qty:0, sales:0,
-      line_registered:false, months:new Set(), patterns:new Map(), segments:new Map()
+      line_registered:storeLineRegistered(r), months:new Set(), patterns:new Map(), segments:new Map()
     });
     const x=byStore.get(k);
     x.qty+=num(r[7]); x.sales+=num(r[8]);
-    if(Number(r[4])===1)x.line_registered=true;
     if(num(r[7])>0)x.months.add(Number(r[3]));
     const pat=r[6]||"Unknown", seg=r[5]||"Unknown";
     x.patterns.set(pat,(x.patterns.get(pat)||0)+num(r[7]));
@@ -389,7 +412,7 @@ function makeVisualization(toolName,result,args,question){
   return null;
 }
 
-const SYSTEM=`You are the AI Sales Analyst inside Michelin Thailand's two-wheel sell-out dashboard. Data period is Jan-Aug 2026 unless a tool says otherwise. Answer in Thai when the user asks in Thai, otherwise in the user's language. Be concise and business-useful. Use calculation tools for every numeric claim; never invent numbers. Current dashboard filters are the default scope unless the user explicitly overrides them. Distinguish Sales Value (THB) from Quantity (tyres). Month mapping: 1 Jan, 2 Feb, 3 Mar, 4 Apr, 5 May, 6 Jun, 7 Jul, 8 Aug. Use compare_months for MoM, store_detail for a named store, big_retail_summary for Big Retail, and cai_opportunities for CAI/Opportunity. Mention Jan-Aug limitation when relevant. Do not claim causation from sales data alone. Keep the answer short because the dashboard may render a chart automatically; do not describe how to draw a chart and do not output chart JSON. Registration terminology is strict: when the user says 'Line register', 'LINE register', 'LINE OA', 'ลงทะเบียน Line', or asks which stores have not registered Line, ALWAYS call registration_summary. When the user says 'Mission' or 'Join Mission', use mission_summary. NEVER infer that Mission not-registered means Line not-registered, and never label Mission registration as Line registration. For a request such as 'ร้านไหนยังไม่ได้ลงทะเบียน Line แล้วมียอดซื้อเยอะ', call registration_summary and use top_not_registered. If the user asks for actual store names, asks 'ร้านไหน', 'ชื่อร้าน', 'Top stores', or wants Distributor + store, call line_unregistered_stores for LINE registration questions and list the returned store names directly. Do not say the tool cannot provide names if line_unregistered_stores is available. For list answers, prefer a compact numbered list with Distributor, store name, Sales and Qty. Entity-level lookup rules: if the user asks for a specific AD/dealer/store, AD Code, CAI/product code, Item/SKU, or asks which stores bought a product, use the dedicated lookup tools rather than summary tools. Use ad_lookup for AD identity/code; product_lookup for CAI/Item/Pattern code lookup; ad_product_detail for products bought by a named/code AD; product_buyers for buyers of a product/code; rank_product_codes for top CAIs. When listing ADs, include Distributor + AD name + AD Code when available. When listing products, include CAI + Item/description + Pattern when available. Never say the dashboard cannot provide AD Code or product code if these tools return it. For exact lists, keep text/table-like lists concise and do not invent missing codes.`;
+const SYSTEM=`You are the AI Sales Analyst inside Michelin Thailand's two-wheel sell-out dashboard. Data period is Jan-Aug 2026 unless a tool says otherwise. Answer in Thai when the user asks in Thai, otherwise in the user's language. Be concise and business-useful. Use calculation tools for every numeric claim; never invent numbers. Current dashboard filters are the default scope unless the user explicitly overrides them. Distinguish Sales Value (THB) from Quantity (tyres). Month mapping: 1 Jan, 2 Feb, 3 Mar, 4 Apr, 5 May, 6 Jun, 7 Jul, 8 Aug. Use compare_months for MoM, store_detail for a named store, big_retail_summary for Big Retail, and cai_opportunities for CAI/Opportunity. Mention Jan-Aug limitation when relevant. Do not claim causation from sales data alone. Keep the answer short because the dashboard may render a chart automatically; do not describe how to draw a chart and do not output chart JSON. Registration terminology is strict: when the user says 'Line register', 'LINE register', 'LINE OA', 'ลงทะเบียน Line', or asks which stores have not registered Line, ALWAYS call registration_summary. When the user says 'Mission' or 'Join Mission', use mission_summary. NEVER infer that Mission not-registered means Line not-registered, and never label Mission registration as Line registration. For a request such as 'ร้านไหนยังไม่ได้ลงทะเบียน Line แล้วมียอดซื้อเยอะ', call registration_summary and use top_not_registered. If the user asks for actual store names, asks 'ร้านไหน', 'ชื่อร้าน', 'Top stores', or wants Distributor + store, call line_unregistered_stores for LINE registration questions and list the returned store names directly. Do not say the tool cannot provide names if line_unregistered_stores is available. For list answers, prefer a compact numbered list with Distributor, store name, Sales and Qty. Entity-level lookup rules: if the user asks for a specific AD/dealer/store, AD Code, CAI/product code, Item/SKU, or asks which stores bought a product, use the dedicated lookup tools rather than summary tools. Use ad_lookup for AD identity/code; product_lookup for CAI/Item/Pattern code lookup; ad_product_detail for products bought by a named/code AD; product_buyers for buyers of a product/code; rank_product_codes for top CAIs. When listing ADs, include Distributor + AD name + AD Code when available. When listing products, include CAI + Item/description + Pattern when available. Never say the dashboard cannot provide AD Code or product code if these tools return it. For exact lists, keep text/table-like lists concise and do not invent missing codes. LINE registration is STORE-LEVEL: if a dealer is registered on any row, treat the dealer as registered for all analyses. Never use rank_ads to answer a LINE-unregistered store-list question; use line_unregistered_stores. Do not return an overall Top AD ranking when the user asked for LINE-unregistered stores.`;
 
 
 
@@ -431,6 +454,34 @@ async function handleAsk(request,env){
 
   const baseFilters=body?.filters||{};
   const history=Array.isArray(body?.history)?body.history.slice(-6):[];
+
+  // Deterministic route for LINE-registration dealer lists.
+  // This avoids model tool-selection mistakes such as returning the overall Top AD ranking.
+  const recentContext=[question,...history.slice(-4).map(x=>String(x?.content||""))].join(" ");
+  const qc=norm(recentContext);
+  const isLineContext=/line\s*register|line\s*registration|line\s*oa|ลงทะเบียน\s*line|ไลน์\s*รีจิส|ไลน์\s*register/.test(qc);
+  const asksNotRegistered=/ยังไม่ลงทะเบียน|ไม่ได้ลงทะเบียน|ไม่ลงทะเบียน|not\s*registered|unregistered/.test(qc);
+  const asksStoreList=/ร้านไหน|รายชื่อ|ชื่อร้าน|ad\s*ไหน|dealer|top\s*\d*|ยอดซื้อสูง|ยอดสูง|มากสุด|สูงสุด/.test(qc);
+
+  if(isLineContext && asksNotRegistered && asksStoreList){
+    const nMatch=question.match(/(?:top|list|ขอ|เอา)?\s*(\d{1,2})/i);
+    const limit=Math.min(Math.max(Number(nMatch?.[1]||10),1),30);
+    const metric=/qty|quantity|จำนวน|เส้น/.test(norm(question))?"qty":"sales";
+    const rows=lineUnregisteredStores({filters:baseFilters,metric,limit},baseFilters);
+
+    const th=/[\u0E00-\u0E7F]/.test(question);
+    const fmtSales=n=>"฿"+Math.round(Number(n||0)).toLocaleString("en-US");
+    const lines=rows.map((x,i)=>{
+      const code=x.ad_code?` · AD Code ${x.ad_code}`:"";
+      return `${i+1}. **${x.ad}** · ${x.distributor}${code} — ${fmtSales(x.sales)} · ${Math.round(x.qty).toLocaleString("en-US")} เส้น`;
+    });
+
+    const answer=th
+      ? `Top ${rows.length} AD ที่ **ยังไม่ได้ลงทะเบียน LINE Register** ตามสถานะระดับร้าน และเรียงตาม${metric==="qty"?"จำนวนเส้น":"Sales Value"}:\n\n${lines.join("\n")}\n\nข้อมูลช่วง Jan–Aug 2026`
+      : `Top ${rows.length} LINE-unregistered ADs ranked by ${metric==="qty"?"quantity":"sales value"}:\n\n${lines.join("\n")}\n\nData period: Jan–Aug 2026`;
+
+    return json({answer,model:"deterministic-line-registration",visualization:null});
+  }
   const hist=history
     .filter(x=>x&&["user","assistant"].includes(x.role)&&typeof x.content==="string")
     .slice(0,-1)
