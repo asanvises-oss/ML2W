@@ -123,3 +123,11 @@ V11.4 STABILIZED AI UX
 - External source links are displayed when returned by the API.
 - Dashboard data remains the authoritative internal source and is never silently replaced by web figures.
 - QA_REPORT.txt included with reconciliation and feature checks.
+
+V11.5 BIG RETAIL VIEW UPDATE
+- Big Retail Segment Mix now uses tyre Quantity (units), not Sales Value.
+- Column label: Segment Mix (By Unit).
+- Removed Top Pattern and Status columns from Big Retail table.
+- Proshop Racing Big Retail rows are merged across EPB + MGP into one row.
+- Big Retail display names: Motoforce -> Raidenforce; Two Wheels Tech -> 29 Tire.
+- English display names shown first, with Thai original in parentheses where mapped.
