@@ -129,8 +129,8 @@ function filteredRows(baseFilters={},overrides={}){
     if(f.segment && f.segment!=="all" && norm(r[5])!==norm(f.segment))return false;
     if(f.pattern && f.pattern!=="all" && norm(r[6])!==norm(f.pattern))return false;
     if(f.status && f.status!=="all" && norm(r[2])!==norm(f.status))return false;
-    if(f.ad && f.ad!=="all" && !norm(r[1]).includes(norm(f.ad)))return false;
-    if(f.ad_contains && !norm(r[1]).includes(norm(f.ad_contains)))return false;
+    if(f.ad && f.ad!=="all" && !norm(r[1]).includes(norm(canonicalADAlias(f.ad))))return false;
+    if(f.ad_contains && !norm(r[1]).includes(norm(canonicalADAlias(f.ad_contains))))return false;
     return true;
   });
 }
@@ -215,6 +215,32 @@ const DISTRIBUTOR_ALIASES={
   "โออีเอ็ม":"OEM","oem":"OEM"
 };
 
+// English/display aliases used on Big Retail page -> canonical sell-out dealer names.
+const AD_ALIASES={
+  "raidenforce":"บริษัท โมโตฟอร์ส จำกัด (สาขาสำนักงานใหญ่)",
+  "motoforce":"บริษัท โมโตฟอร์ส จำกัด (สาขาสำนักงานใหญ่)",
+  "29 tire":"บริษัท ทูวีลส์เทค จำกัด สำนักงานใหญ่",
+  "29tire":"บริษัท ทูวีลส์เทค จำกัด สำนักงานใหญ่",
+  "two wheels tech":"บริษัท ทูวีลส์เทค จำกัด สำนักงานใหญ่",
+  "megapart wanghin":"เมกาพาร์ทวังหิน สาขา 0003",
+  "megapart wanghin branch 0003":"เมกาพาร์ทวังหิน สาขา 0003",
+  "capy racing":"บริษัท คาปี้ เรซซิ่ง จำกัด (สาขาสำนักงานใหญ่)",
+  "nbc automotive":"บริษัท เอ็นบีซี ออโต้โมทีฟ จำกัด",
+  "proshop racing":"บริษัท โปรช็อป เรซซิ่ง จำกัด (สำนักงานใหญ่)",
+  "k bike":"ร้าน K BIKE ลำลูกกา",
+  "k bike lam luk ka":"ร้าน K BIKE ลำลูกกา",
+  "homethai garage":"บริษัท โฮมไทย การาจ จำกัด (สำนักงานใหญ่)"
+};
+function canonicalADAlias(value){
+  const raw=String(value||"").trim();
+  if(!raw)return raw;
+  const n=norm(raw);
+  for(const [alias,canon] of Object.entries(AD_ALIASES)){
+    if(n===norm(alias))return canon;
+  }
+  return raw;
+}
+
 function aliasNormalizeQuestion(text){
   let out=String(text||"");
   const hits=[];
@@ -267,7 +293,8 @@ function similarity(a,b){
 }
 
 function adResolve(args){
-  const query=String(args.query||"").trim();
+  const originalQuery=String(args.query||"").trim();
+  const query=canonicalADAlias(originalQuery);
   const q=adNameNorm(query);
   if(!q)return {status:"none",query,candidates:[]};
 
@@ -294,7 +321,7 @@ function adResolve(args){
   return {status:"low_confidence",query,candidates:scored.slice(0,5)};
 }
 function adMasterQuery(args,base){
-  const q=norm(args.query||"");
+  const q=norm(canonicalADAlias(args.query||""));
   const limit=Math.min(Math.max(Number(args.limit)||20,1),50);
   let rows=[...buildADMaster().values()];
 
@@ -375,7 +402,7 @@ function productMasterQuery(args){
 }
 
 function adProductMart(args){
-  const aq=norm(args.ad_query||"");
+  const aq=norm(canonicalADAlias(args.ad_query||""));
   const pq=norm(args.product_query||"");
   const metric=args.metric==="qty"?"qty":"sales";
   const limit=Math.min(Math.max(Number(args.limit)||20,1),60);
@@ -538,6 +565,73 @@ function missionSummary(args){
 }
 
 
+function extractTyreSize(item){
+  const t=String(item||"").toUpperCase().replace(/\s+/g," ").trim();
+  let m=t.match(/\b(\d{2,3}\/\d{2,3})\s*(?:ZR|R|B|-)?\s*(\d{2})\b/);
+  if(m)return `${m[1]}-${m[2]}`;
+  m=t.match(/\b(\d\.\d{2})\s*-\s*(\d{2})\b/);
+  if(m)return `${m[1]}-${m[2]}`;
+  return null;
+}
+
+function recentTopProducts(args,base){
+  const monthsCount=Math.min(Math.max(Number(args.months_count)||3,1),8);
+  const metric=args.metric==="qty"?"qty":"sales";
+  const limit=Math.min(Math.max(Number(args.limit)||10,1),20);
+  const latestMonth=Math.max(...DATA.map(r=>Number(r[3])||0));
+  const start=Math.max(1,latestMonth-monthsCount+1);
+  const months=[];for(let m=start;m<=latestMonth;m++)months.push(m);
+
+  const f=mergedFilters(base,args.filters||{});
+  const patternMap=new Map(), sizeMap=new Map(), itemMap=new Map();
+
+  for(const x of AD_PRODUCTS){
+    if(f.distributor&&f.distributor!=="all"&&norm(x.distributor)!==norm(f.distributor))continue;
+    if(f.ad&&f.ad!=="all"&&!norm(x.ad).includes(norm(canonicalADAlias(f.ad))))continue;
+    if(f.ad_contains&&!norm(x.ad).includes(norm(canonicalADAlias(f.ad_contains))))continue;
+
+    const master=adMasterRecord(x.distributor,x.ad);
+    if(f.status&&f.status!=="all"&&norm(master?.status)!==norm(f.status))continue;
+    if(f.line!==undefined&&f.line!=="all"){
+      const want=Number(f.line)===1;
+      if((master?.line_registered===true)!==want)continue;
+    }
+
+    let q=0,v=0;
+    for(const mm of (x.months||[])){
+      const m=Number(mm?.[0]||0);
+      if(!months.includes(m))continue;
+      q+=num(mm?.[1]); v+=num(mm?.[2]);
+    }
+    if(!q&&!v)continue;
+
+    const pat=x.pattern||"Unknown";
+    if(!patternMap.has(pat))patternMap.set(pat,{pattern:pat,qty:0,sales:0});
+    patternMap.get(pat).qty+=q; patternMap.get(pat).sales+=v;
+
+    const size=extractTyreSize(x.item);
+    if(size){
+      if(!sizeMap.has(size))sizeMap.set(size,{size,qty:0,sales:0});
+      sizeMap.get(size).qty+=q; sizeMap.get(size).sales+=v;
+    }
+
+    const key=String(x.cai||"")+"\u0001"+String(x.item||"");
+    if(!itemMap.has(key))itemMap.set(key,{cai:x.cai,item:x.item,pattern:pat,size,qty:0,sales:0});
+    itemMap.get(key).qty+=q; itemMap.get(key).sales+=v;
+  }
+
+  const sortMetric=a=>Number(a?.[metric]||0);
+  return {
+    period:`${MONTHS[start]}-${MONTHS[latestMonth]} 2026`,
+    months,
+    metric,
+    top_patterns:[...patternMap.values()].sort((a,b)=>sortMetric(b)-sortMetric(a)).slice(0,limit),
+    top_sizes:[...sizeMap.values()].sort((a,b)=>sortMetric(b)-sortMetric(a)).slice(0,limit),
+    top_items:[...itemMap.values()].sort((a,b)=>sortMetric(b)-sortMetric(a)).slice(0,limit)
+  };
+}
+
+
 const toolDefs=[
  {type:"function",name:"ad_resolve",description:"Resolve an incomplete, shortened, misspelled, Thai/English dealer name or AD Code before answering dealer-specific questions. If status is ambiguous or low_confidence, ASK THE USER to choose from candidates instead of guessing.",parameters:{type:"object",properties:{query:{type:"string"}},required:["query"],additionalProperties:false}},
 
@@ -547,6 +641,7 @@ const toolDefs=[
  {type:"function",name:"ad_product_mart",description:"Authoritative AD x product detail. Use when asking what products/CAIs a dealer bought, or a dealer's sales/qty by product.",parameters:{type:"object",properties:{ad_query:{type:"string"},product_query:{type:"string"},metric:{type:"string",enum:["sales","qty"]},limit:{type:"integer"},filters:{type:"object",additionalProperties:true}},required:["ad_query","metric","limit"],additionalProperties:false}},
  {type:"function",name:"product_buyer_mart",description:"Authoritative product buyer ranking. Use when asking which ADs bought a CAI/item/pattern the most. Can filter LINE registration status.",parameters:{type:"object",properties:{product_query:{type:"string"},line_status:{type:"string",enum:["all","registered","not_registered"]},metric:{type:"string",enum:["sales","qty"]},limit:{type:"integer"}},required:["product_query","metric","limit"],additionalProperties:false}},
  {type:"function",name:"sales_summary",description:"Get exact sales, quantity, AD count, monthly, distributor and segment summary under filters.",parameters:{type:"object",properties:{filters:{type:"object",additionalProperties:true}},additionalProperties:false}},
+ {type:"function",name:"recent_top_products",description:"Rank top-selling tyre patterns, tyre sizes and exact items across the latest N months. Use this for questions such as latest/top-selling pattern or size in the last 2/3/6 months. This aggregates the whole requested period; do NOT use compare_months for this intent.",parameters:{type:"object",properties:{filters:{type:"object",additionalProperties:true},months_count:{type:"integer",minimum:1,maximum:8},metric:{type:"string",enum:["sales","qty"]},limit:{type:"integer"}},required:["months_count","metric","limit"],additionalProperties:false}},
  {type:"function",name:"rank_patterns",description:"Rank tyre patterns by sales value or quantity.",parameters:{type:"object",properties:{filters:{type:"object",additionalProperties:true},metric:{type:"string",enum:["sales","qty"]},limit:{type:"integer"}},required:["metric","limit"],additionalProperties:false}},
  {type:"function",name:"monthly_trend",description:"Get Jan-Aug monthly trend for the selected scope.",parameters:{type:"object",properties:{filters:{type:"object",additionalProperties:true}},additionalProperties:false}},
  {type:"function",name:"compare_months",description:"Compare two months by AD, pattern, distributor or segment and rank decline/growth.",parameters:{type:"object",properties:{filters:{type:"object",additionalProperties:true},month_a:{type:"integer",minimum:1,maximum:8},month_b:{type:"integer",minimum:1,maximum:8},group_by:{type:"string",enum:["ad","pattern","distributor","segment"]},metric:{type:"string",enum:["sales","qty"]},direction:{type:"string",enum:["decline","growth"]},limit:{type:"integer"}},required:["month_a","month_b","group_by","metric","direction","limit"],additionalProperties:false}},
@@ -555,7 +650,7 @@ const toolDefs=[
  {type:"function",name:"cai_opportunities",description:"Get exact CAI pair opportunities using dashboard size tiers: Small 500-1499, Medium 1500-4999, Large 5000+, cross-distributor peer median, excluding AD below 500 tyres.",parameters:{type:"object",properties:{filters:{type:"object",additionalProperties:true},limit:{type:"integer"}},required:["limit"],additionalProperties:false}},
  {type:"function",name:"mission_summary",description:"MISSION registration only (Join Mission / Mission campaign). Use ONLY when the user explicitly asks about Mission or Join Mission. Mission registration is different from LINE OA / Line Register.",parameters:{type:"object",properties:{filters:{type:"object",additionalProperties:true}},additionalProperties:false}}
 ];
-function runTool(name,args,base){switch(name){case"ad_resolve":return adResolve(args);case"ad_master_query":return adMasterQuery(args,base);case"ad_rank_mart":return adRankMart(args,base);case"product_master_query":return productMasterQuery(args);case"ad_product_mart":return adProductMart(args);case"product_buyer_mart":return productBuyerMart(args);case"sales_summary":return salesSummary(args,base);case"rank_ads":return rankAds(args,base);case"ad_lookup":return adLookup(args,base);case"product_lookup":return productLookup(args);case"ad_product_detail":return adProductDetail(args);case"product_buyers":return productBuyers(args);case"rank_product_codes":return rankProductCodes(args);case"rank_patterns":return rankPatterns(args,base);case"monthly_trend":return monthlyTrend(args,base);case"compare_months":return compareMonths(args,base);case"big_retail_summary":return bigRetail(args,base);case"store_detail":return storeDetail(args,base);case"registration_summary":return registrationSummary(args,base);case"line_unregistered_stores":return lineUnregisteredStores(args,base);case"cai_opportunities":return caiOpportunities(args,base);case"mission_summary":return missionSummary(args);default:return {error:"Unknown tool"};}}
+function runTool(name,args,base){switch(name){case"ad_resolve":return adResolve(args);case"ad_master_query":return adMasterQuery(args,base);case"ad_rank_mart":return adRankMart(args,base);case"product_master_query":return productMasterQuery(args);case"ad_product_mart":return adProductMart(args);case"product_buyer_mart":return productBuyerMart(args);case"sales_summary":return salesSummary(args,base);case"rank_ads":return rankAds(args,base);case"ad_lookup":return adLookup(args,base);case"product_lookup":return productLookup(args);case"ad_product_detail":return adProductDetail(args);case"product_buyers":return productBuyers(args);case"rank_product_codes":return rankProductCodes(args);case"recent_top_products":return recentTopProducts(args,base);case"rank_patterns":return rankPatterns(args,base);case"monthly_trend":return monthlyTrend(args,base);case"compare_months":return compareMonths(args,base);case"big_retail_summary":return bigRetail(args,base);case"store_detail":return storeDetail(args,base);case"registration_summary":return registrationSummary(args,base);case"line_unregistered_stores":return lineUnregisteredStores(args,base);case"cai_opportunities":return caiOpportunities(args,base);case"mission_summary":return missionSummary(args);default:return {error:"Unknown tool"};}}
 
 
 
@@ -612,6 +707,16 @@ function makeVisualization(toolName,result,args,question){
       type:"bar",title:`Top AD by ${metric==="qty"?"Quantity":"Sales"}`,
       format:metric==="qty"?"number":"currency",
       items:result.slice(0,10).map(x=>({label:x.ad,value:Number(x[metric]||0)}))
+    };
+  }
+
+  if(toolName==="recent_top_products" && result?.top_patterns?.length){
+    const metric=args?.metric==="qty"?"qty":"sales";
+    return {
+      type:"bar",title:`Top Patterns · ${result.period}`,
+      subtitle:`Latest ${args?.months_count||3} months combined`,
+      format:metric==="qty"?"number":"currency",
+      items:result.top_patterns.slice(0,10).map(x=>({label:x.pattern,value:Number(x[metric]||0)}))
     };
   }
 
@@ -732,6 +837,9 @@ RULES:
 - Month mapping: 1 Jan, 2 Feb, 3 Mar, 4 Apr, 5 May, 6 Jun, 7 Jul, 8 Aug.
 - Keep answers concise and business-useful. For ranked lists, show Distributor · AD Name · AD Code when available · Sales/Qty.
 - Do not claim causation from sales data alone.
+- For "top selling pattern/size in the last N months", use recent_top_products and aggregate the requested months. Do NOT use compare_months unless the user explicitly asks for growth/decline/change between two months.
+- compare_months definition is strict: value_a = month_a, value_b = month_b, delta = value_b - value_a. Never reverse this direction.
+- Output ONLY the final business answer. Never narrate internal checking, tool selection, debugging, contradictions, "wait", self-corrections, or hidden reasoning to the user. If tool data looks inconsistent, state a short data-quality caveat instead of exposing analysis steps.
 - Distributor aliases are normalized before you see the question (e.g. สมพล → Sompol). Use the canonical distributor name in data tools.
 - Uploaded attachments are user-provided context, not dashboard truth. Clearly distinguish their information from dashboard data when relevant.
 - External web information must always be labeled as external and must not overwrite or silently reconcile dashboard figures.
@@ -858,7 +966,7 @@ async function handleAsk(request,env){
   let lastTool=null;
   let webUsed=responseUsedWeb(response);
 
-  for(let step=0;step<5;step++){
+  for(let step=0;step<8;step++){
     const calls=(response.output||[]).filter(x=>x.type==="function_call");
     if(!calls.length)break;
 
@@ -892,7 +1000,28 @@ async function handleAsk(request,env){
   }
 
   let answer=extractOutputText(response);
-  if(!answer)return json({error:"AI returned no text response."},500);
+
+  // Safety net: if the model ends on another tool call instead of a user-facing answer,
+  // make one final no-tools pass using the tool outputs already collected above.
+  if(!answer){
+    const finalInput=[
+      ...input,
+      {role:"user",content:[{type:"input_text",text:"Provide the final answer now using only the dashboard tool results already provided. Do not call any more tools. Do not expose internal reasoning, debugging, self-correction, or tool-selection commentary. If data is insufficient, say so briefly."}]}
+    ];
+    const finalResponse=await openAI(env,{
+      model,
+      instructions:SYSTEM+modeInstruction,
+      input:finalInput,
+      store:false,
+      reasoning:{effort:"low"},
+      max_output_tokens:900
+    });
+    response=finalResponse;
+    answer=extractOutputText(finalResponse);
+    webUsed=webUsed||responseUsedWeb(finalResponse);
+  }
+
+  if(!answer)return json({error:"AI could not produce a final text answer after tool execution."},500);
 
   const sources=extractWebSources(response);
   if(webUsed){
@@ -907,7 +1036,7 @@ async function handleAsk(request,env){
   return json({
     answer,
     model,
-    backend_version:"V11.4",
+    backend_version:"V11.7-AI-Stability",
     visualization,
     external_used:webUsed,
     sources,
@@ -935,7 +1064,7 @@ export default async (request, context) => {
     return json({
       ok:!!process.env.OPENAI_API_KEY,
       model:process.env.OPENAI_MODEL||"gpt-5.4-mini",
-      backend_version:"V11.4",
+      backend_version:"V11.7-AI-Stability",
       data_rows:DATA.length,
       ad_master_rows:adm.length,
       ad_master_registered:adm.filter(x=>x.line_registered).length,
