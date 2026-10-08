@@ -1,0 +1,33 @@
+﻿Alias / old name,Canonical name,Action
+29tire,29 Tire,Merged
+Capy racing shop,"Capy Racing Co., Ltd. (Head Office)",Merged
+"D.K.S.ENGINEER CO., LTD",ร้าน DKS รองเมือง,Merged
+Motoforce,Raidenforce,Merged
+Motrotire,บริษัท โมโตไทร์(ไทยแลนด์) จำกัด,Merged
+PPSAUTO,ร้าน พีพีเอส ออโต้ เพชรเกษม,Merged
+Proshop Racing,"Proshop Racing Co., Ltd. (Head Office)",Merged
+[Mega-Pro] - ช่างโจ้ ลาดพร้าว 41 (วังหิน),ช่างโจ้ ลาดพร้าว 41 (วังหิน),Merged
+[ช่างซ่อม] - ร.เนี๊ยบ การยาง(วังหิน),[ช่างซ่อม] - ร.เนี๊ยบ การยาง 089-7924488 (วังหิน),Merged
+กอะไหล่ยนต์,ร้าน ก.อะไหล่ สุขุมวิท 71,Merged
+บจก. ต้องเจริญ มอเตอร์,บริษัท ต้องเจริญ มอเตอร์ จำกัด (สำนักงานใหญ่),Merged
+บริษัท คาปี้ เรซซิ่ง จำกัด (สาขาสำนักงานใหญ่),"Capy Racing Co., Ltd. (Head Office)",Merged
+บริษัท ทูวีลส์เทค จำกัด สำนักงานใหญ่,29 Tire,Merged
+บริษัท สตรีท ไทร์ เรซซิ่ง จำกัด,บริษัท สตรีท ไทร์ เรซซิ่ง จำกัด (สำนักงานใหญ่),Merged
+บริษัท โปรช็อป เรซซิ่ง จำกัด (สำนักงานใหญ่),"Proshop Racing Co., Ltd. (Head Office)",Merged
+บริษัท โมโตฟอร์ส จำกัด (สาขาสำนักงานใหญ่),Raidenforce,Merged
+บีไบค์ช้อป,ร้าน Bbike shop,Merged
+ป.฿ารยาง,ป.การยาง,Merged
+ยนต์฿ิจมอเตอร์ไซค์,ยนต์กิจมอเตอร์ไซค์,Merged
+ราม83tyres,ร้าน ราม 83 Tyres bike shop บางกะปิ,Merged
+ร้าน ร้าน ศักดิ์เจริญยนต์,ร้าน ศักดิ์เจริญยนต์,Merged
+ร้าน อามีน MTมอเตอร์  รามคำแหง,อามีนMTมอเตอร์,Merged
+ร้าน ไพฑูรย์พาณิชย์,หจก. ไพฑูรย์พาณิชย์,Merged
+ร้านช่างโจ้ลาดพร้าว 41,ช่างโจ้ ลาดพร้าว 41 (วังหิน),Merged
+สินเจริ฿อะไหล่,สินเจริญอะไหล่,Merged
+ส฿ายเวย์,สกายเวย์,Merged
+฿.ยนต์ 2,ก.ยนต์ 2,Merged
+เมกาพาร์ทวังหิน สาขา 0003 (including hidden-space variants),Megapart Wanghin Branch 0003,Merged / normalized as one store
+เม฿้า โคลเวอร์ พลัส,เมก้า โคลเวอร์ พลัส,Merged
+๿สงชัยพาณิชย์(อะไหล่),แสงชัยพาณิชย์(อะไหล่),Merged
+
+Note,Some AD codes in the source contain clearly unrelated names or invalid codes such as '-' / null. Those were intentionally NOT auto-merged to avoid combining different shops.,Review source data separately
