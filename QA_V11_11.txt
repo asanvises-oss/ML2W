@@ -1,0 +1,11 @@
+V11.11 QA
+Rows: 7372
+Qty preserved: True (285,198)
+Sales preserved: True (285,948,758)
+Distributor row counts preserved: True
+Distributor rows: {'EPB': 1363, 'MGP': 1158, 'NKY': 260, 'OEM': 1364, 'RTY': 1549, 'Sompol': 1678}
+29 Tire / Two Wheels canonical: บริษัท ทูวีลส์เทค จํากัด สํานักงานใหญ่
+29 Tire / Two Wheels merged totals: Qty 928, Sales 4,509,117
+Sisbo / Song Parts canonical: ร้าน ซิสโบบิวตี้
+Sisbo merged totals: Qty 2,730, Sales 2,193,235
+AD filter display cap removed: full distributor list and full AD list available.
