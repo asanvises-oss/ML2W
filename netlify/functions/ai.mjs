@@ -20,10 +20,8 @@ function canonicalStoreName(name){
   if(raw==="เมกาพาร์ทวังหิน สาขา 0003")return "Megapart Wanghin Branch 0003";
   return raw;
 }
-// Keep Dashboard AI and frontend on the same dealer identity.
+// DATA is already declared here, so it is safe to normalize now.
 for(const r of DATA) r[1]=canonicalStoreName(r[1]);
-for(const x of ENTITY_ADS) x.ad=canonicalStoreName(x.ad);
-for(const x of AD_PRODUCTS) x.ad=canonicalStoreName(x.ad);
 
 const MONTHS={1:"Jan",2:"Feb",3:"Mar",4:"Apr",5:"May",6:"Jun",7:"Jul",8:"Aug"};
 const norm=s=>String(s??"").trim().toLowerCase();
@@ -59,6 +57,11 @@ function mergedFilters(base={},o={}){
 }
 
 let _AD_MASTER_CACHE=null;
+
+
+// Normalize dealer names only after ENTITY_ADS and AD_PRODUCTS have been declared.
+for(const x of ENTITY_ADS) x.ad=canonicalStoreName(x.ad);
+for(const x of AD_PRODUCTS) x.ad=canonicalStoreName(x.ad);
 
 function buildADMaster(){
   if(_AD_MASTER_CACHE)return _AD_MASTER_CACHE;
@@ -1042,7 +1045,7 @@ async function handleAsk(request,env){
   return json({
     answer,
     model,
-    backend_version:"V11.10-ADCode-Majority-Name",
+    backend_version:"V11.10.1-Auth-Hotfix",
     visualization,
     external_used:webUsed,
     sources,
@@ -1070,7 +1073,7 @@ export default async (request, context) => {
     return json({
       ok:!!process.env.OPENAI_API_KEY,
       model:process.env.OPENAI_MODEL||"gpt-5.4-mini",
-      backend_version:"V11.10-ADCode-Majority-Name",
+      backend_version:"V11.10.1-Auth-Hotfix",
       data_rows:DATA.length,
       ad_master_rows:adm.length,
       ad_master_registered:adm.filter(x=>x.line_registered).length,
